@@ -144,23 +144,40 @@ export default function ApplyService() {
     
     // Submit application directly without payment gateway
     try {
-      // 1. Convert files to Base64 (saving in Firestore to avoid Firebase Storage costs/setup)
+      // 1. Upload files to our custom local express backend to avoid Firebase Storage setup issues
       const uploadedDocs: Record<string, string> = {};
       
+      const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+      };
+
       const uploadPromises = Object.entries(files).map(async ([docName, file]) => {
         try {
-          // Check file size (limit to 2MB)
           if ((file as File).size > 2 * 1024 * 1024) {
              throw new Error("File must be less than 2MB.");
           }
 
-          const fileExt = (file as File).name.split('.').pop();
-          const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
-          const storageRef = ref(storage, fileName);
+          const base64 = await fileToBase64(file as File);
           
-          const uploadTask = await uploadBytesResumable(storageRef, file as File);
-          const downloadURL = await getDownloadURL(uploadTask.ref);
-          uploadedDocs[docName] = downloadURL;
+          const response = await fetch('/api/upload', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+                fileName: (file as File).name,
+                base64
+             })
+          });
+          
+          if (!response.ok) {
+             throw new Error(`Server returned ${response.status}`);
+          }
+          const data = await response.json();
+          uploadedDocs[docName] = data.url;
         } catch (uploadError: any) {
           console.error(`Error uploading ${docName}:`, uploadError);
           throw new Error(uploadError.message || `Failed to process ${docName}.`);
