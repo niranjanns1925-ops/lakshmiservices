@@ -10,6 +10,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import ApplicationDetails from './pages/ApplicationDetails';
 import AdminDashboard from './pages/AdminDashboard';
 import Services from './pages/Services';
 import ApplyService from './pages/ApplyService';
@@ -29,6 +30,11 @@ export default function App() {
           <Route path="/apply/:serviceId" element={
             <ProtectedRoute>
               <ApplyService />
+            </ProtectedRoute>
+          } />
+          <Route path="/application/:serviceId" element={
+            <ProtectedRoute>
+              <ApplicationDetails />
             </ProtectedRoute>
           } />
           <Route path="/dashboard" element={

@@ -54,7 +54,12 @@ export default function ApplyService() {
 
   const handleFileChange = (documentName: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFiles({ ...files, [documentName]: e.target.files[0] });
+      const file = e.target.files[0];
+      if (file.size > 700 * 1024) {
+        toast.error(`File size must be less than 700KB. ${file.name} is too large.`);
+        return;
+      }
+      setFiles({ ...files, [documentName]: file });
     }
   };
 
@@ -139,31 +144,33 @@ export default function ApplyService() {
     
     // Submit application directly without payment gateway
     try {
-      // 1. Upload files concurrently with a fallback and timeout
+      // 1. Convert files to Base64 (saving in Firestore to avoid Firebase Storage costs/setup)
       const uploadedDocs: Record<string, string> = {};
+      
+      const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+      };
+
+      const uploadPromises = Object.entries(files).map(async ([docName, file]) => {
         try {
-          const uploadPromises = Object.entries(files).map(async ([docName, file]) => {
-            const fileExt = (file as File).name.split('.').pop();
-            const fileName = `applications/${user?.uid}/${serviceId}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
-            const storageRef = ref(storage, fileName);
-            
-            const uploadTask = await uploadBytesResumable(storageRef, file as File);
-            const downloadURL = await getDownloadURL(uploadTask.ref);
-            uploadedDocs[docName] = downloadURL;
-          });
-          
-          // Add a 15-second timeout for file uploads
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Storage upload timed out. Ensure Firebase Storage is enabled in your project.")), 15000)
-          );
-          
-          await Promise.race([Promise.all(uploadPromises), timeoutPromise]);
+          // Check file size (limit to ~700KB to fit within Firestore's 1MB doc limit comfortably)
+          if ((file as File).size > 700 * 1024) {
+             throw new Error("File must be less than 700KB.");
+          }
+          const base64Str = await fileToBase64(file as File);
+          uploadedDocs[docName] = base64Str;
         } catch (uploadError: any) {
-          console.warn("Document upload failed, falling back so submission can succeed without files:", uploadError);
-          Object.keys(files).forEach((docName) => {
-             uploadedDocs[docName] = `mocked_url_due_to_upload_failure_${docName}`;
-          });
+          console.error(`Error uploading ${docName}:`, uploadError);
+          throw new Error(uploadError.message || `Failed to process ${docName}.`);
         }
+      });
+      
+      await Promise.all(uploadPromises);
         
         // 2. Create application record
         await addDoc(collection(db, 'applications'), {
@@ -307,7 +314,7 @@ export default function ApplyService() {
                     {docName}
                     <span className="text-red-500 ml-1">*</span>
                   </h4>
-                  <p className={`text-xs ${errors.documents && !files[docName] ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 2MB)</p>
+                  <p className={`text-xs ${errors.documents && !files[docName] ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 700KB)</p>
                 </div>
                 
                 <div>
