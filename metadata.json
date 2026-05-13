@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "E-Sevai Platform",
+  "description": "A digital service platform for applying and managing various E-Sevai services.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

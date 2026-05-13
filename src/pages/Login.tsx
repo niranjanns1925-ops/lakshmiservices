@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { auth, db, initError, firebaseConfig } from '../firebase/config';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -28,7 +28,12 @@ export default function Login() {
 
   const onSubmit = async (data: LoginForm) => {
     if (!auth) {
-      toast.error('Firebase is not configured properly. Please check your API keys.');
+      console.error("Firebase initError:", initError);
+      console.log("Firebase config context:", firebaseConfig);
+      toast.error(`Firebase error: ${initError?.message || initError || 'Unknown Error'}. See console for details.`);
+      if (!firebaseConfig?.apiKey) {
+         toast.error("VITE_FIREBASE_API_KEY is undefined on the client-side!");
+      }
       return;
     }
     setIsLoading(true);
@@ -91,6 +96,12 @@ export default function Login() {
             }} />
             <h1 className="text-2xl font-bold text-gray-900">Welcome Back 👋</h1>
             <p className="text-gray-500 mt-2">Login to access your E-Sevai dashboard</p>
+            {initError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded mt-4 text-left w-full text-sm">
+                <strong>Firebase Init Error:</strong><br/>
+                {initError?.message || String(initError)}
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

@@ -18,6 +18,12 @@ async function startServer() {
     });
   });
 
+  app.post("/api/debug-log", (req, res) => {
+    require('fs').writeFileSync('./client-debug.json', JSON.stringify(req.body, null, 2));
+    console.log("CLIENT DEBUG LOG:", req.body);
+    res.sendStatus(200);
+  });
+
   // Cashfree Order Creation API
   app.post("/api/create-cashfree-order", async (req, res) => {
     try {

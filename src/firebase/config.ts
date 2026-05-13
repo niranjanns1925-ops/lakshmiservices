@@ -13,7 +13,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-let app, auth, db, storage;
+let app, auth, db, storage, initError;
 
 try {
   if (!firebaseConfig.apiKey) {
@@ -32,9 +32,20 @@ try {
     db = getFirestore(app);
     storage = getStorage(app);
   }
-} catch (error) {
+} catch (error: any) {
+  initError = error;
   console.error("Firebase initialization error. Please check your config.", error);
-  // Do not swallow the error completely.
+  try {
+    fetch('/api/debug-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+         errorMsg: error?.message, 
+         config: firebaseConfig,
+         stack: error?.stack
+      })
+    });
+  } catch (e) {}
 }
 
-export { app, auth, db, storage };
+export { app, auth, db, storage, initError, firebaseConfig };
