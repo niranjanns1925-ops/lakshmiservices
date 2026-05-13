@@ -9,6 +9,7 @@ import { auth, db, initError, firebaseConfig } from '../firebase/config';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Logo } from '../components/Logo';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -91,9 +92,9 @@ export default function Login() {
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl overflow-hidden flex">
         <div className="w-full md:w-1/2 p-8 sm:p-12">
           <div className="text-center mb-8 flex flex-col items-center">
-            <img src="/logo.png" alt="Logo" className="w-16 h-16 mb-4 object-contain" onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }} />
+            <div className="w-16 h-16 mb-4">
+              <Logo className="w-full h-full drop-shadow-md" />
+            </div>
             <h1 className="text-2xl font-bold text-gray-900">Welcome Back 👋</h1>
             <p className="text-gray-500 mt-2">Login to access your E-Sevai dashboard</p>
             {initError && (

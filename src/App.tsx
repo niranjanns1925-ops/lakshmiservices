@@ -14,6 +14,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import Services from './pages/Services';
 import ApplyService from './pages/ApplyService';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { Logo } from './components/Logo';
 
 export default function App() {
   return (
@@ -45,9 +46,9 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 px-8 py-3 flex flex-col sm:flex-row items-center justify-between">
         <div className="flex items-center gap-4 text-[10px] sm:text-xs text-slate-400">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Logo" className="h-6 w-6 object-contain" onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }} />
+            <div className="h-6 w-6">
+              <Logo className="w-full h-full" />
+            </div>
             <p>&copy; {new Date().getFullYear()} Lakshmi E-Sevai Maiyam. All Rights Reserved.</p>
           </div>
           <span className="w-1 h-1 bg-slate-300 rounded-full"></span>

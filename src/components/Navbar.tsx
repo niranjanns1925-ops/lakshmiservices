@@ -5,6 +5,7 @@ import { auth } from '../firebase/config';
 import { signOut } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import { LogOut, User as UserIcon, Menu } from 'lucide-react';
+import { Logo } from './Logo';
 
 export default function Navbar() {
   const { user, appUser } = useAuth();
@@ -27,11 +28,7 @@ export default function Navbar() {
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
-                <img src="/logo.png" alt="Lakshmi E-Sevai Logo" className="w-full h-full object-contain p-1" onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  (e.target as HTMLImageElement).nextElementSibling!.classList.remove('hidden');
-                }} />
-                <div className="hidden w-6 h-6 border-4 border-primary-900 border-t-accent-500 rounded-full"></div>
+                <Logo className="w-full h-full p-1" />
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-xs font-bold leading-tight uppercase tracking-wider">Lakshmi E-Sevai</h1>

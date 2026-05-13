@@ -9,6 +9,7 @@ import { auth, db } from '../firebase/config';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Logo } from '../components/Logo';
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -116,9 +117,9 @@ export default function Register() {
         </div>
         <div className="w-full md:w-1/2 p-8 sm:p-12">
           <div className="text-center mb-8 flex flex-col items-center">
-            <img src="/logo.png" alt="Logo" className="w-16 h-16 mb-4 object-contain" onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }} />
+            <div className="w-16 h-16 mb-4">
+              <Logo className="w-full h-full drop-shadow-md" />
+            </div>
             <h1 className="text-2xl font-bold text-gray-900">Create Account ✨</h1>
             <p className="text-gray-500 mt-2">Join Lakshmi E-Sevai Maiyam</p>
           </div>

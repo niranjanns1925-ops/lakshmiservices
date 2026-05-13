@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FileText, Shield, Clock, PhoneCall, ChevronRight } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { TiltCard } from '../components/ui/TiltCard';
+import { Logo } from '../components/Logo';
 
 export default function Home() {
   return (
@@ -13,9 +14,9 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="flex flex-col md:flex-row items-center gap-12">
             <div className="md:w-1/2">
-              <img src="/logo.png" alt="Logo" className="w-24 h-24 mb-6 object-contain bg-white/10 rounded-2xl p-2 backdrop-blur-sm shadow-xl" onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }} />
+              <div className="w-24 h-24 mb-6 bg-white rounded-2xl p-2 backdrop-blur-sm shadow-xl flex items-center justify-center">
+                <Logo className="w-full h-full" />
+              </div>
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">
                 Lakshmi E-Sevai Maiyam 💻✨
               </h1>
