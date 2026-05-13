@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -16,15 +16,25 @@ const firebaseConfig = {
 let app, auth, db, storage;
 
 try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  // Using initializeFirestore with experimentalForceLongPolling can help bypass WebSocket blocking in iframes
-  db = initializeFirestore(app, {
-    experimentalForceLongPolling: true
-  });
-  storage = getStorage(app);
+  if (!firebaseConfig.apiKey) {
+    console.error("FIREBASE API KEY IS MISSING! Please add it to your environment variables.");
+  }
+  if (getApps().length === 0) {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = initializeFirestore(app, {
+      experimentalForceLongPolling: true
+    });
+    storage = getStorage(app);
+  } else {
+    app = getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
+    storage = getStorage(app);
+  }
 } catch (error) {
   console.error("Firebase initialization error. Please check your config.", error);
+  // Do not swallow the error completely.
 }
 
 export { app, auth, db, storage };

@@ -33,6 +33,10 @@ export default function Register() {
   });
 
   const onSubmit = async (data: RegisterForm) => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
@@ -66,6 +70,10 @@ export default function Register() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();

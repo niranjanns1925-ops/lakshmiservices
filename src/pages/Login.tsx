@@ -27,6 +27,10 @@ export default function Login() {
   });
 
   const onSubmit = async (data: LoginForm) => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, data.email, data.password);
@@ -44,6 +48,10 @@ export default function Login() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();

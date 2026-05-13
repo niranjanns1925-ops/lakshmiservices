@@ -10,6 +10,14 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  app.get("/api/debug-env", (req, res) => {
+    res.json({
+      hasFirebaseKey: !!process.env.VITE_FIREBASE_API_KEY,
+      nodeEnv: process.env.NODE_ENV,
+      viteKey: process.env.VITE_FIREBASE_API_KEY ? "EXISTS" : "MISSING"
+    });
+  });
+
   // Cashfree Order Creation API
   app.post("/api/create-cashfree-order", async (req, res) => {
     try {
