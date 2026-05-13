@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
+import { collection, query, getDocs, updateDoc, doc, addDoc, deleteDoc } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -68,6 +69,59 @@ export default function AdminDashboard() {
   const [rejectingApp, setRejectingApp] = useState<{id: string, currentStatus: string} | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [viewingApp, setViewingApp] = useState<any | null>(null);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadRange, setDownloadRange] = useState('month');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  const handleDownloadExcel = () => {
+    let filteredData = applications;
+    const now = new Date();
+    
+    if (downloadRange === 'today') {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      filteredData = applications.filter(app => app.createdAt?.toMillis() >= todayStart.getTime());
+    } else if (downloadRange === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      filteredData = applications.filter(app => app.createdAt?.toMillis() >= monthStart.getTime());
+    } else if (downloadRange === 'year') {
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      filteredData = applications.filter(app => app.createdAt?.toMillis() >= yearStart.getTime());
+    } else if (downloadRange === 'custom') {
+      const start = new Date(customStartDate);
+      const end = new Date(customEndDate);
+      end.setHours(23, 59, 59, 999);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        filteredData = applications.filter(app => {
+          const t = app.createdAt?.toMillis() || 0;
+          return t >= start.getTime() && t <= end.getTime();
+        });
+      }
+    }
+
+    if (filteredData.length === 0) {
+      toast.error('No records found for the selected range.');
+      return;
+    }
+
+    const excelData = filteredData.map(app => ({
+      'Application ID': app.id,
+      'Applicant Name': app.applicantDetails?.applicantName || '',
+      'Phone Number': app.applicantDetails?.applicantPhone || '',
+      'Aadhaar': app.applicantDetails?.applicantAadhaar || '',
+      'Address': app.applicantDetails?.address || '',
+      'Service Name': app.serviceName || '',
+      'Status': app.status || '',
+      'Fee': app.fee || 0,
+      'Submitted At': app.createdAt ? format(app.createdAt.toDate(), 'dd MMM yyyy, hh:mm a') : '',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Applications");
+    XLSX.writeFile(workbook, `Applications_${downloadRange}.xlsx`);
+    setShowDownloadModal(false);
+  };
 
   const handleStatusChange = async (appId: string, newStatus: string, reason?: string) => {
     if (newStatus === 'Rejected' && !reason) {
@@ -261,7 +315,12 @@ export default function AdminDashboard() {
         <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden flex-1">
           <div className="p-6 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
             <h2 className="text-lg font-semibold text-gray-900">All Applications</h2>
-            <div className="relative w-full sm:w-72">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <Button onClick={() => setShowDownloadModal(true)} variant="outline" className="shrink-0">
+                <Download className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+              <div className="relative w-full sm:w-72">
               <input
                 type="text"
                 placeholder="Search ID, Name, Service..."
@@ -270,10 +329,55 @@ export default function AdminDashboard() {
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
               />
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
+            {showDownloadModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-8">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-md animate-in fade-in zoom-in duration-200 p-6">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-gray-900">Export Application Data</h3>
+                    <button onClick={() => setShowDownloadModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
+                  </div>
+                  
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                      <select 
+                        value={downloadRange} 
+                        onChange={(e) => setDownloadRange(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-primary-500"
+                      >
+                        <option value="today">Today</option>
+                        <option value="month">This Month</option>
+                        <option value="year">This Year</option>
+                        <option value="custom">Custom Range</option>
+                      </select>
+                    </div>
+
+                    {downloadRange === 'custom' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                          <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-primary-500"/>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                          <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-primary-500"/>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                    <Button variant="ghost" onClick={() => setShowDownloadModal(false)}>Cancel</Button>
+                    <Button onClick={handleDownloadExcel}>Download Excel</Button>
+                  </div>
+                </div>
+              </div>
+            )}
             {rejectingApp && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
@@ -523,11 +627,47 @@ export default function AdminDashboard() {
 // Sub-component for managing services
 function ServicesManager({ services, refreshServices }: { services: any[], refreshServices: () => void }) {
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newSvc, setNewSvc] = useState({ 
     title: '', description: '', category: '', price: 0, 
     requiredDocuments: [''], 
     customFields: [] as { name: string; type: 'text'|'number'|'date'; label: string; required: boolean }[] 
   });
+
+  const handleEditClick = (svc: any) => {
+    setEditingId(svc.id);
+    setNewSvc({
+      title: svc.title,
+      description: svc.description,
+      category: svc.category,
+      price: svc.price,
+      requiredDocuments: svc.requiredDocuments && svc.requiredDocuments.length > 0 ? svc.requiredDocuments : [''],
+      customFields: svc.customFields || []
+    });
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("Are you sure you want to delete this service?")) {
+      try {
+        await deleteDoc(doc(db, 'services', id));
+        toast.success("Service deleted");
+        refreshServices();
+      } catch (error) {
+        toast.error("Failed to delete service");
+      }
+    }
+  };
+
+  const handleToggleActive = async (id: string, current: boolean) => {
+    try {
+      await updateDoc(doc(db, 'services', id), { active: !current });
+      toast.success(current ? "Service deactivated" : "Service activated");
+      refreshServices();
+    } catch (error) {
+      toast.error("Failed to update service status");
+    }
+  };
 
   const handleDocumentChange = (index: number, val: string) => {
     const docs = [...newSvc.requiredDocuments];
@@ -562,27 +702,38 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
     setNewSvc({ ...newSvc, customFields: fields });
   };
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     try {
       if (!newSvc.title || !newSvc.price) return toast.error("Title and Price required");
       
       const cleanDocs = newSvc.requiredDocuments.filter(d => d.trim() !== '');
       const cleanFields = newSvc.customFields.map(cf => ({ ...cf, name: cf.label.toLowerCase().replace(/[^a-z0-9]/g, '_') })).filter(cf => cf.label.trim() !== '');
       
-      await addDoc(collection(db, 'services'), {
-        ...newSvc,
-        requiredDocuments: cleanDocs,
-        customFields: cleanFields,
-        active: true,
-        createdAt: new Date()
-      });
+      if (editingId) {
+        await updateDoc(doc(db, 'services', editingId), {
+          ...newSvc,
+          requiredDocuments: cleanDocs,
+          customFields: cleanFields,
+          updatedAt: new Date()
+        });
+        toast.success("Service updated successfully!");
+      } else {
+        await addDoc(collection(db, 'services'), {
+          ...newSvc,
+          requiredDocuments: cleanDocs,
+          customFields: cleanFields,
+          active: true,
+          createdAt: new Date()
+        });
+        toast.success("Service created successfully!");
+      }
       
-      toast.success("Service created successfully!");
       setIsAdding(false);
+      setEditingId(null);
       setNewSvc({ title: '', description: '', category: '', price: 0, requiredDocuments: [''], customFields: [] });
       refreshServices();
     } catch (error) {
-      toast.error("Failed to create service");
+      toast.error(editingId ? "Failed to update service" : "Failed to create service");
     }
   };
 
@@ -590,7 +741,7 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
     <div className="space-y-6">
       {isAdding ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Create New Service</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">{editingId ? 'Edit Service' : 'Create New Service'}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Input label="Service Title" value={newSvc.title} onChange={e => setNewSvc({...newSvc, title: e.target.value})} />
             <Input label="Category (e.g., Revenue, Identity)" value={newSvc.category} onChange={e => setNewSvc({...newSvc, category: e.target.value})} />
@@ -660,8 +811,8 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
             </div>
           </div>
           <div className="flex gap-3 justify-end mt-8">
-            <Button variant="ghost" onClick={() => setIsAdding(false)}>Cancel</Button>
-            <Button onClick={handleCreate}>Save Service</Button>
+            <Button variant="ghost" onClick={() => { setIsAdding(false); setEditingId(null); setNewSvc({ title: '', description: '', category: '', price: 0, requiredDocuments: [''], customFields: [] }); }}>Cancel</Button>
+            <Button onClick={handleSave}>{editingId ? 'Update Service' : 'Save Service'}</Button>
           </div>
         </div>
       ) : (
@@ -678,18 +829,34 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Fee</th>
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {services.length === 0 ? (
-                  <tr><td colSpan={4} className="p-8 text-center text-gray-500">No custom services. Showing defaults in user app.</td></tr>
+                  <tr><td colSpan={5} className="p-8 text-center text-gray-500">No custom services. Showing defaults in user app.</td></tr>
                 ) : (
                   services.map(s => (
                     <tr key={s.id} className="hover:bg-gray-50">
                       <td className="p-4 text-sm font-medium text-gray-900">{s.title}</td>
                       <td className="p-4 text-sm text-gray-500"><span className="bg-slate-100 px-2 py-1 rounded text-xs">{s.category}</span></td>
                       <td className="p-4 text-sm font-medium text-primary-900">₹{s.price}</td>
-                      <td className="p-4 text-sm text-green-600 font-medium">{s.active ? 'Active' : 'Inactive'}</td>
+                      <td className="p-4 text-sm font-medium">
+                        <span className={`px-2 py-1 rounded-full text-xs ${s.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {s.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-sm text-right space-x-2">
+                        <button onClick={() => handleToggleActive(s.id, s.active)} className="text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition-colors">
+                          {s.active ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button onClick={() => handleEditClick(s)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors">
+                          Edit
+                        </button>
+                        <button onClick={() => handleDelete(s.id)} className="text-xs font-medium text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded transition-colors">
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
