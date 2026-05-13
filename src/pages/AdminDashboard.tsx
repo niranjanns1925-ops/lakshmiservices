@@ -4,7 +4,7 @@ import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { FileText, CheckCircle, Clock, Search, BarChart3, Plus, Trash2 } from 'lucide-react';
+import { FileText, CheckCircle, Clock, Search, BarChart3, Plus, Trash2, Eye, X, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -67,6 +67,7 @@ export default function AdminDashboard() {
 
   const [rejectingApp, setRejectingApp] = useState<{id: string, currentStatus: string} | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [viewingApp, setViewingApp] = useState<any | null>(null);
 
   const handleStatusChange = async (appId: string, newStatus: string, reason?: string) => {
     if (newStatus === 'Rejected' && !reason) {
@@ -305,6 +306,147 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
+
+            {viewingApp && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-8">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-full flex flex-col animate-in fade-in zoom-in duration-200">
+                  <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">Application Details</h3>
+                      <p className="text-sm text-gray-500 mt-1">ID: {viewingApp.id} | Service: {viewingApp.serviceName}</p>
+                    </div>
+                    <button 
+                      onClick={() => setViewingApp(null)}
+                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-full transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto flex-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Left Column: Details */}
+                      <div className="space-y-6">
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Applicant Information</h4>
+                          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                            <div>
+                              <span className="text-xs text-gray-500 block">Full Name</span>
+                              <span className="text-sm font-medium text-gray-900">{viewingApp.applicantDetails?.applicantName || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-500 block">Phone Number</span>
+                              <span className="text-sm font-medium text-gray-900">{viewingApp.applicantDetails?.applicantPhone || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-500 block">Aadhaar Number</span>
+                              <span className="text-sm font-medium text-gray-900">{viewingApp.applicantDetails?.applicantAadhaar || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-500 block">Address</span>
+                              <span className="text-sm font-medium text-gray-900">{viewingApp.applicantDetails?.address || 'N/A'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Custom Fields (if any) */}
+                        {Object.keys(viewingApp.applicantDetails || {}).filter(k => !['applicantName', 'applicantPhone', 'applicantAadhaar', 'address'].includes(k)).length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Additional Details</h4>
+                            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                              {Object.keys(viewingApp.applicantDetails).filter(k => !['applicantName', 'applicantPhone', 'applicantAadhaar', 'address'].includes(k)).map(key => (
+                                <div key={key}>
+                                  <span className="text-xs text-gray-500 block">{key}</span>
+                                  <span className="text-sm font-medium text-gray-900">{viewingApp.applicantDetails[key]}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Application Status</h4>
+                          <div className="bg-gray-50 rounded-lg p-4 flex flex-col gap-3">
+                            <div>
+                              <span className="text-xs text-gray-500 block">Current Status</span>
+                              <span className={`inline-flex px-2 py-1 mt-1 text-xs font-semibold rounded-full 
+                                ${viewingApp.status === 'Approved' || viewingApp.status === 'Completed' ? 'bg-green-100 text-green-800' : 
+                                  viewingApp.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
+                                  'bg-yellow-100 text-yellow-800'}`}>
+                                {viewingApp.status}
+                              </span>
+                            </div>
+                            {viewingApp.rejectionReason && (
+                              <div>
+                                <span className="text-xs text-red-500 block">Rejection Reason</span>
+                                <span className="text-sm text-red-700">{viewingApp.rejectionReason}</span>
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-xs text-gray-500 block">Submitted At</span>
+                              <span className="text-sm font-medium text-gray-900">
+                                {viewingApp.createdAt ? format(viewingApp.createdAt.toDate(), 'dd MMM yyyy, hh:mm a') : 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-500 block">Fee Paid</span>
+                              <span className="text-sm font-medium text-green-700">₹{viewingApp.fee || 0}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Documents */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Uploaded Documents</h4>
+                        <div className="space-y-3">
+                          {viewingApp.documents && Object.keys(viewingApp.documents).length > 0 ? (
+                            Object.entries(viewingApp.documents).map(([docName, url]) => (
+                              <div key={docName} className="border border-gray-200 rounded-lg p-3 hover:border-primary-300 transition-colors bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center text-sm font-medium text-gray-900">
+                                    <FileText className="w-4 h-4 mr-2 text-primary-500" />
+                                    {docName}
+                                  </div>
+                                  <a 
+                                    href={url as string} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="flex items-center text-xs font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 px-2 py-1 rounded"
+                                  >
+                                    <Download className="w-3 h-3 mr-1" />
+                                    Preview / Download
+                                  </a>
+                                </div>
+                                {/* Attempt to show preview if it's likely an image or allow fallback for mock URLs */}
+                                <div className="bg-gray-50 rounded aspect-video w-full flex items-center justify-center overflow-hidden border border-gray-100">
+                                  {(url as string).includes('mocked_url') ? (
+                                     <div className="text-center p-4">
+                                       <p className="text-xs text-gray-400 mb-1">Preview not available.</p>
+                                       <p className="text-[10px] text-gray-400 font-mono break-all">{url as string}</p>
+                                     </div>
+                                  ) : (
+                                    <iframe src={url as string} className="w-full h-full object-cover" title={docName} />
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200 border-dashed">
+                              <p className="text-sm text-gray-500">No documents uploaded.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex justify-end shrink-0">
+                    <Button onClick={() => setViewingApp(null)}>Close</Button>
+                  </div>
+                </div>
+              </div>
+            )}
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
@@ -340,18 +482,27 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="p-4 text-sm text-gray-500">
-                        <select 
-                          value={app.status}
-                          onChange={(e) => handleStatusChange(app.id, e.target.value)}
-                          className="text-sm border border-gray-300 rounded-md p-1 focus:ring-primary-500"
-                        >
-                          <option value="Submitted">Submitted</option>
-                          <option value="Document Verification">Verify Docs</option>
-                          <option value="Processing">Processing</option>
-                          <option value="Approved">Approve</option>
-                          <option value="Completed">Complete</option>
-                          <option value="Rejected">Reject</option>
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select 
+                            value={app.status}
+                            onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                            className="text-sm border border-gray-300 rounded-md p-1 focus:ring-primary-500"
+                          >
+                            <option value="Submitted">Submitted</option>
+                            <option value="Document Verification">Verify Docs</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Approved">Approve</option>
+                            <option value="Completed">Complete</option>
+                            <option value="Rejected">Reject</option>
+                          </select>
+                          <button 
+                            onClick={() => setViewingApp(app)}
+                            className="p-1 text-gray-500 hover:text-primary-600 bg-gray-100 hover:bg-primary-50 rounded transition-colors"
+                            title="View Details & Documents"
+                          >
+                            <Eye className="w-5 h-5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

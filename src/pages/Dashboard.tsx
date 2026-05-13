@@ -1,16 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
-import { FileText, Clock, CheckCircle2, XCircle, AlertCircle, Eye, Download, Loader2 } from 'lucide-react';
+import { Input } from '../components/ui/Input';
+import { FileText, Clock, CheckCircle2, XCircle, AlertCircle, Eye, Download, Loader2, Edit, X } from 'lucide-react';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user, appUser } = useAuth();
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [profileData, setProfileData] = useState({ name: '', phone: '' });
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+
+  useEffect(() => {
+    if (appUser) {
+      setProfileData({ name: appUser.name || '', phone: appUser.phone || '' });
+    }
+  }, [appUser]);
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setUpdatingProfile(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        name: profileData.name,
+        phone: profileData.phone
+      });
+      toast.success("Profile updated successfully!");
+      setIsEditProfileOpen(false);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Failed to update profile.");
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
 
   useEffect(() => {
     const fetchApplications = async () => {
@@ -61,9 +92,15 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Welcome, {appUser?.name}</h1>
-        <p className="text-gray-500">Track your E-Sevai applications and manage your profile.</p>
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome, {appUser?.name}</h1>
+          <p className="text-gray-500">Track your E-Sevai applications and manage your profile.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setIsEditProfileOpen(true)} className="w-fit">
+          <Edit className="w-4 h-4 mr-2" />
+          Edit Profile
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-8">
@@ -185,6 +222,50 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+
+      {isEditProfileOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900">Edit Profile</h3>
+              <button 
+                onClick={() => setIsEditProfileOpen(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleProfileUpdate} className="p-6 space-y-4">
+              <Input
+                label="Full Name"
+                placeholder="John Doe"
+                value={profileData.name}
+                onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                required
+              />
+              <Input
+                label="Phone Number"
+                placeholder="9876543210"
+                value={profileData.phone}
+                onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                required
+              />
+              <div className="pt-4 flex justify-end gap-3">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setIsEditProfileOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" isLoading={updatingProfile}>
+                  Save Changes
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

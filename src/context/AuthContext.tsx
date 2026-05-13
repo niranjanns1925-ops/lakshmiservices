@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase/config';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface AppUser {
   uid: string;
@@ -32,39 +32,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeSnapshot: () => void;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
       
       if (firebaseUser) {
         try {
           const docRef = doc(db, 'users', firebaseUser.uid);
-          const docSnap = await getDoc(docRef);
-          
-          if (docSnap.exists()) {
-            setAppUser(docSnap.data() as AppUser);
-          } else {
-            // Default to minimal user if profile not fully created yet
-            setAppUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'User',
-              role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
-              phone: ''
-            });
-          }
-        } catch (error: any) {
-          console.error("Error fetching user role:", error);
-          if (error.message && error.message.includes("client is offline")) {
-            console.error("CRITICAL: Firestore is offline. Did you create the Firestore Database in the Firebase Console?");
-            // Fallback for admin if firestore is uncreatable or blocked
-            setAppUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'User',
-              role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
-              phone: ''
-            });
-          }
+          unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+              setAppUser(docSnap.data() as AppUser);
+            } else {
+              setAppUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || 'User',
+                role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+                phone: ''
+              });
+            }
+          }, (error: any) => {
+            console.error("Error fetching user role:", error);
+            if (error.message && error.message.includes("client is offline")) {
+              console.error("CRITICAL: Firestore is offline.");
+              setAppUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || 'User',
+                role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+                phone: ''
+              });
+            }
+          });
+        } catch (error) {
+          console.error(error);
         }
       } else {
         setAppUser(null);
@@ -73,7 +79,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
+    };
   }, []);
 
   return (
