@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (request.auth.token.email == 'niranjanns1925@gmail.com' || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && (request.resource.data.role == 'user' || (request.resource.data.role == 'admin' && request.auth.token.email == 'niranjanns1925@gmail.com'));
+      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin(); // Only admin can change roles
+      allow delete: if isAdmin();
+    }
+
+    // Services Collection
+    match /services/{serviceId} {
+      allow read: if true; // Public can see services
+      allow write: if isAdmin();
+    }
+
+    // Applications Collection
+    match /applications/{appId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isAdmin(); // Only admins can update status/delete
+      allow delete: if isAdmin();
+    }
+    
+    // Notifications Collection
+    match /notifications/{notifId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAdmin();
+      allow update: if isOwner(resource.data.userId); // Allow marking as read
+      allow delete: if isAdmin();
+    }
+  }
+}
