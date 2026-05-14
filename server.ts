@@ -32,7 +32,7 @@ async function startServer() {
 
   const upload = multer({ 
     storage: storageConfig,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+    limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
   });
 
   app.post("/api/upload", (req, res, next) => {

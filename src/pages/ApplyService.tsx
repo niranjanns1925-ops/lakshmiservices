@@ -68,11 +68,11 @@ export default function ApplyService() {
         return;
       }
 
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error(`File too large. Maximum size is 5MB.`);
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(`File too large. Maximum size is 50MB.`);
         setDocsMeta(prev => ({
           ...prev, 
-          [documentName]: { file: null, status: 'error', progress: 0, error: 'File too large. Maximum size is 5MB.' }
+          [documentName]: { file: null, status: 'error', progress: 0, error: 'File too large. Maximum size is 50MB.' }
         }));
         return;
       }
@@ -191,7 +191,7 @@ export default function ApplyService() {
             if (file.type.startsWith('image/')) {
               try {
                 const options = {
-                  maxSizeMB: 0.4,
+                  maxSizeMB: 2,
                   maxWidthOrHeight: 1920,
                   useWebWorker: true,
                 };
@@ -254,48 +254,29 @@ export default function ApplyService() {
       results.forEach(r => { uploadedDocs[r.docName] = r.url; });
       setUploading(false);
 
-      // 2. Process Payment via Live Cashfree
-      const customerPhone = formData.applicantPhone ? formData.applicantPhone.replace(/\D/g, '') : "9999999999";
-      
-      await processPayment(
-        'cashfree',
-        {
-          orderId: `ORD_${Date.now()}`,
-          amount: service.price,
-          customerName: formData.applicantName || user?.displayName || 'Applicant',
-          customerEmail: user?.email || 'test@example.com',
-          customerPhone: customerPhone.length > 0 ? customerPhone : '9999999999'
-        },
-        async (transactionId) => {
-           // 3. On success, create the application record in Firestore
-           try {
-             await addDoc(collection(db, 'applications'), {
-               userId: user?.uid,
-               userEmail: user?.email,
-               serviceId: service.id,
-               serviceName: service.title,
-               applicantDetails: { ...formData, ...customData },
-               documents: uploadedDocs,
-               status: 'Submitted',
-               paymentStatus: 'Paid',
-               transactionId,
-               fee: service.price,
-               createdAt: serverTimestamp(),
-               updatedAt: serverTimestamp()
-             });
-             
-             toast.success('Application submitted successfully!');
-             navigate('/dashboard');
-           } catch(err: any) {
-             console.error("Firestore save error after payment:", err);
-             toast.error("Payment successful, but failed to save application. Please contact support.", { duration: 6000 });
-           }
-        },
-        (paymentError) => {
-          console.error("Payment Error:", paymentError);
-          toast.error(paymentError?.message || "Payment Process Failed.");
-        }
-      );
+      // Bypass Cashfree Payment - Make it free
+      try {
+        await addDoc(collection(db, 'applications'), {
+          userId: user?.uid,
+          userEmail: user?.email,
+          serviceId: service.id,
+          serviceName: service.title,
+          applicantDetails: { ...formData, ...customData },
+          documents: uploadedDocs,
+          status: 'Submitted',
+          paymentStatus: 'Paid (Free Bypass)',
+          transactionId: `FREE_${Date.now()}`,
+          fee: 0,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        
+        toast.success('Application submitted successfully for free!');
+        navigate('/dashboard');
+      } catch(err: any) {
+        console.error("Firestore save error after payment:", err);
+        toast.error("Failed to save application. Please contact support.", { duration: 6000 });
+      }
 
     } catch (err: any) {
       console.error("Submission error:", err);
@@ -341,11 +322,10 @@ export default function ApplyService() {
         <div className="flex justify-between items-center bg-primary-50 p-4 rounded-lg">
           <div>
             <h3 className="font-semibold text-primary-900">Application Fee</h3>
-            <p className="text-sm text-primary-700">Non-refundable processing fee</p>
+            <p className="text-sm text-primary-700">Special completely free bypass applied</p>
           </div>
           <div className="text-2xl font-bold text-primary-700 flex items-center">
-            <IndianRupee className="w-6 h-6 mr-1" />
-            {service.price}
+            FREE
           </div>
         </div>
       </div>
@@ -424,7 +404,7 @@ export default function ApplyService() {
                       {docName}
                       <span className="text-red-500 ml-1">*</span>
                     </h4>
-                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 5MB)</p>
+                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 50MB) - Completely Free Storage</p>
                     {hasError && meta.error && (
                       <p className="text-xs text-red-600 mt-1 font-medium">{meta.error}</p>
                     )}
