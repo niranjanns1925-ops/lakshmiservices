@@ -57,6 +57,7 @@ export default function ApplyService() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.size > 2 * 1024 * 1024) {
+        toast.error(`File size must be less than 2MB. ${file.name} is too large.`);
         setDocsMeta(prev => ({
           ...prev, 
           [documentName]: { file: prev[documentName]?.file || null, status: 'error', progress: 0, error: `File size exceeds 2MB limit (${(file.size / 1024 / 1024).toFixed(2)}MB).` }
