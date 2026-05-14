@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
 import { Upload, X, FileText, ChevronRight, IndianRupee } from 'lucide-react';
+import { processPayment } from '../utils/payment';
 
 export default function ApplyService() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -165,14 +166,13 @@ export default function ApplyService() {
 
     setUploading(true);
     
-    // Submit application directly without payment gateway
     try {
       // 1. Upload files to Firebase Storage
       const uploadPromises = Object.entries(docsMeta)
-        .filter(([_, meta]) => meta.file)
+        .filter(([_, meta]) => (meta as any).file)
         .map(([docName, meta]) => {
           return new Promise<{ docName: string, url: string }>((resolve, reject) => {
-            const file = meta.file!;
+            const file = (meta as any).file!;
             setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'uploading', progress: 0, error: null } }));
 
             const fileExt = file.name.split('.').pop();
@@ -209,42 +209,67 @@ export default function ApplyService() {
       const results = await Promise.all(uploadPromises);
       const uploadedDocs: Record<string, string> = {};
       results.forEach(r => { uploadedDocs[r.docName] = r.url; });
-        
-        // 2. Create application record
-        await addDoc(collection(db, 'applications'), {
-          userId: user?.uid,
-          userEmail: user?.email,
-          serviceId: service.id,
-          serviceName: service.title,
-          applicantDetails: { ...formData, ...customData },
-          documents: uploadedDocs,
-          status: 'Submitted',
-          paymentStatus: 'Paid',
-          transactionId: `txn_direct_${Date.now()}`,
-          fee: service.price,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        
-        toast.success('Application submitted successfully!');
-        navigate('/dashboard');
-      } catch (err: any) {
-        console.error("Submission error:", err);
-        
-        let errorMessage = 'Application creation failed. Please try again.';
-        if (err.code === 'storage/retry-limit-exceeded' || err.code === 'storage/unauthorized') {
-          errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
-        } else if (err.code === 'permission-denied') {
-          errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
-        } else if (err.message) {
-          errorMessage = err.message;
-        }
+      setUploading(false);
 
-        setErrors({ global: errorMessage });
-        toast.error(errorMessage);
-      } finally {
-        setUploading(false);
+      // 2. Process Payment via Live Cashfree
+      const customerPhone = formData.applicantPhone ? formData.applicantPhone.replace(/\D/g, '') : "9999999999";
+      
+      await processPayment(
+        'cashfree',
+        {
+          orderId: `ORD_${Date.now()}`,
+          amount: service.price,
+          customerName: formData.applicantName || user?.displayName || 'Applicant',
+          customerEmail: user?.email || 'test@example.com',
+          customerPhone: customerPhone.length > 0 ? customerPhone : '9999999999'
+        },
+        async (transactionId) => {
+           // 3. On success, create the application record in Firestore
+           try {
+             await addDoc(collection(db, 'applications'), {
+               userId: user?.uid,
+               userEmail: user?.email,
+               serviceId: service.id,
+               serviceName: service.title,
+               applicantDetails: { ...formData, ...customData },
+               documents: uploadedDocs,
+               status: 'Submitted',
+               paymentStatus: 'Paid',
+               transactionId,
+               fee: service.price,
+               createdAt: serverTimestamp(),
+               updatedAt: serverTimestamp()
+             });
+             
+             toast.success('Application submitted successfully!');
+             navigate('/dashboard');
+           } catch(err: any) {
+             console.error("Firestore save error after payment:", err);
+             toast.error("Payment successful, but failed to save application. Please contact support.", { duration: 6000 });
+           }
+        },
+        (paymentError) => {
+          console.error("Payment Error:", paymentError);
+          toast.error(paymentError?.message || "Payment Process Failed.");
+        }
+      );
+
+    } catch (err: any) {
+      console.error("Submission error:", err);
+      
+      let errorMessage = 'Application creation failed. Please try again.';
+      if (err.code === 'storage/retry-limit-exceeded' || err.code === 'storage/unauthorized') {
+        errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
+      } else if (err.code === 'permission-denied') {
+        errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
+      } else if (err.message) {
+        errorMessage = err.message;
       }
+
+      setErrors({ global: errorMessage });
+      toast.error(errorMessage);
+      setUploading(false);
+    }
   };
 
   if (loading) return (

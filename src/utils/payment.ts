@@ -42,7 +42,7 @@ export const processPayment = async (
 
       // Initialize SDK
       const cashfree = await load({
-         mode: "sandbox", // TODO: Determine environment dynamically if needed
+         mode: data.environment === 'PRODUCTION' ? "production" : "sandbox",
       });
 
       toast.dismiss(tId);

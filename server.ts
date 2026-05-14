@@ -11,6 +11,59 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  app.post("/api/create-cashfree-order", async (req, res) => {
+    try {
+      const { orderAmount, customerId, customerName, customerEmail, customerPhone } = req.body;
+      
+      const APP_ID = process.env.CASHFREE_APP_ID;
+      const SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
+      const ENV = process.env.CASHFREE_ENVIRONMENT || 'SANDBOX';
+      
+      if (!APP_ID || !SECRET_KEY) {
+         return res.status(500).json({ error: "Cashfree credentials are not configured on the server." });
+      }
+
+      const baseUrl = ENV === 'PRODUCTION' 
+        ? 'https://api.cashfree.com/pg/orders'
+        : 'https://sandbox.cashfree.com/pg/orders';
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-version": "2023-08-01",
+          "x-client-id": APP_ID,
+          "x-client-secret": SECRET_KEY
+        },
+        body: JSON.stringify({
+          order_amount: orderAmount,
+          order_currency: "INR",
+          customer_details: {
+            customer_id: customerId || `cust_${Date.now()}`,
+            customer_name: customerName || "Customer",
+            customer_email: customerEmail || "test@example.com",
+            customer_phone: customerPhone || "9999999999"
+          },
+          order_meta: {
+            return_url: `${req.headers.origin || 'http://localhost:3000'}/dashboard`
+          }
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+         console.error("Cashfree order creation failed:", data);
+         return res.status(response.status).json({ error: data.message || "Failed to create order." });
+      }
+
+      res.json({ ...data, environment: ENV });
+    } catch (err: any) {
+      console.error("Internal Cashfree integration error:", err);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  });
+
   app.get("/api/debug-env", (req, res) => {
     res.json({
       hasFirebaseKey: !!process.env.VITE_FIREBASE_API_KEY,
