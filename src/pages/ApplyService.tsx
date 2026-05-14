@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Service } from './Services';
@@ -194,37 +194,31 @@ export default function ApplyService() {
             const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
             const storageRef = ref(storage, fileName);
             
-            // Use standard uploadBytes instead of uploadBytesResumable
-            // This prevents network hanging issues with chunked/resumable uploads in restrictive proxy environments.
+            const uploadTask = uploadBytesResumable(storageRef, file);
             
-            // Simulating a minor progress jump for UI purposes since uploadBytes has no native progress hook
-            setTimeout(() => {
-              setDocsMeta(prev => {
-                if (prev[docName]?.status === 'uploading') {
-                  return { ...prev, [docName]: { ...prev[docName], progress: 50 } };
-                }
-                return prev;
-              });
-            }, 500);
-
-            uploadBytes(storageRef, file)
-              .then(async (snapshot) => {
+            uploadTask.on('state_changed',
+              (snapshot) => {
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress } }));
+              },
+              (error) => {
+                console.error("Upload failed", error);
+                let errorMessage = error.message;
+                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Please log in.';
+                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
+                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
+              },
+              async () => {
                 try {
-                  const downloadURL = await getDownloadURL(snapshot.ref);
+                  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                   setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
                   resolve({ docName, url: downloadURL });
                 } catch (err: any) {
                   setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: 'Failed to get download URL' } }));
                   reject(err);
                 }
-              })
-              .catch((error) => {
-                console.error("Upload failed", error);
-                let errorMessage = error.message;
-                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Please log in.';
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
-                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
-              });
+              }
+            );
           });
         });
 
