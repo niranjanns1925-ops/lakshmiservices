@@ -57,11 +57,11 @@ export default function ApplyService() {
   const handleFileChange = (documentName: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error(`File size must be less than 2MB. ${file.name} is too large.`);
+      if (file.size > 400 * 1024) {
+        toast.error(`File size must be less than 400KB. ${file.name} is too large.`);
         setDocsMeta(prev => ({
           ...prev, 
-          [documentName]: { file: prev[documentName]?.file || null, status: 'error', progress: 0, error: `File size exceeds 2MB limit (${(file.size / 1024 / 1024).toFixed(2)}MB).` }
+          [documentName]: { file: prev[documentName]?.file || null, status: 'error', progress: 0, error: `File size exceeds 400KB limit (${(file.size / 1024).toFixed(2)}KB).` }
         }));
         return;
       }
@@ -403,7 +403,7 @@ export default function ApplyService() {
                       {docName}
                       <span className="text-red-500 ml-1">*</span>
                     </h4>
-                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 2MB)</p>
+                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 400KB)</p>
                     {hasError && meta.error && (
                       <p className="text-xs text-red-600 mt-1 font-medium">{meta.error}</p>
                     )}
