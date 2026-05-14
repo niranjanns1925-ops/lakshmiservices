@@ -10,7 +10,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-type TabType = 'analytics' | 'requests' | 'services';
+type TabType = 'analytics' | 'requests' | 'services' | 'users';
 
 export default function AdminDashboard() {
   const { appUser } = useAuth();
@@ -214,6 +214,12 @@ export default function AdminDashboard() {
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'services' ? 'bg-white text-primary-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
           >
             Manage Services
+          </button>
+          <button 
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'users' ? 'bg-white text-primary-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            Manage Admins
           </button>
         </div>
       </div>
@@ -620,6 +626,121 @@ export default function AdminDashboard() {
       {activeTab === 'services' && (
         <ServicesManager services={services} refreshServices={fetchServices} />
       )}
+
+      {activeTab === 'users' && (
+        <AdminsManager />
+      )}
+    </div>
+  );
+}
+
+// Sub-component for managing admins
+function AdminsManager() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const fetchUsers = async () => {
+    try {
+      const q = query(collection(db, 'users'));
+      const snap = await getDocs(q);
+      const data: any[] = [];
+      snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
+      setUsers(data);
+    } catch (err) {
+      toast.error('Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      toast.success(`User role updated to ${newRole}`);
+      fetchUsers();
+    } catch (err) {
+      toast.error('Failed to update user role');
+    }
+  };
+
+  const filteredUsers = users.filter((u: any) => 
+    (u.name || '').toLowerCase().includes(search.toLowerCase()) || 
+    (u.email || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+      <div className="p-6 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Manage Administrators</h2>
+          <p className="text-sm text-gray-500">Promote users to admins or revoke admin access</p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <input
+            type="text"
+            placeholder="Search users..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+          />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {loading ? (
+              <tr><td colSpan={4} className="p-8 text-center text-gray-500">Loading users...</td></tr>
+            ) : filteredUsers.length === 0 ? (
+              <tr><td colSpan={4} className="p-8 text-center text-gray-500">No users found.</td></tr>
+            ) : (
+              filteredUsers.map((u: any) => (
+                <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 text-sm font-medium text-gray-900">{u.name || 'N/A'}</td>
+                  <td className="p-4 text-sm text-gray-500">{u.email || 'N/A'}</td>
+                  <td className="p-4 text-sm">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>
+                      {u.role || 'user'}
+                    </span>
+                  </td>
+                  <td className="p-4 text-sm text-right">
+                    {u.role === 'admin' ? (
+                      <button 
+                        onClick={() => handleRoleChange(u.id, 'user')}
+                        className="text-xs font-medium text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded transition-colors"
+                        disabled={u.email === 'niranjanns1925@gmail.com'}
+                        title={u.email === 'niranjanns1925@gmail.com' ? "Cannot demote super admin" : "Revoke Admin Access"}
+                      >
+                       Revoke Admin
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => handleRoleChange(u.id, 'admin')}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded transition-colors"
+                      >
+                       Make Admin
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

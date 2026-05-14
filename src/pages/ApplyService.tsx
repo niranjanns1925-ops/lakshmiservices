@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Service } from './Services';
@@ -10,6 +10,7 @@ import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
 import { Upload, X, FileText, ChevronRight, IndianRupee } from 'lucide-react';
 import { processPayment } from '../utils/payment';
+import imageCompression from 'browser-image-compression';
 
 export default function ApplyService() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -172,38 +173,58 @@ export default function ApplyService() {
       const uploadPromises = Object.entries(docsMeta)
         .filter(([_, meta]) => (meta as any).file)
         .map(([docName, meta]) => {
-          return new Promise<{ docName: string, url: string }>((resolve, reject) => {
-            const file = (meta as any).file!;
+          return new Promise<{ docName: string, url: string }>(async (resolve, reject) => {
+            let file = (meta as any).file!;
             setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'uploading', progress: 0, error: null } }));
+
+            if (file.type.startsWith('image/')) {
+              try {
+                const options = {
+                  maxSizeMB: 0.4,
+                  maxWidthOrHeight: 1920,
+                  useWebWorker: true,
+                };
+                file = await imageCompression(file, options);
+              } catch (error) {
+                console.error("Compression missed", error);
+              }
+            }
 
             const fileExt = file.name.split('.').pop();
             const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
             const storageRef = ref(storage, fileName);
             
-            const uploadTask = uploadBytesResumable(storageRef, file);
+            // Use standard uploadBytes instead of uploadBytesResumable
+            // This prevents network hanging issues with chunked/resumable uploads in restrictive proxy environments.
             
-            uploadTask.on('state_changed',
-              (snapshot) => {
-                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress } }));
-              },
-              (error) => {
-                let errorMessage = error.message;
-                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Check storage rules.';
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
-                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
-              },
-              async () => {
+            // Simulating a minor progress jump for UI purposes since uploadBytes has no native progress hook
+            setTimeout(() => {
+              setDocsMeta(prev => {
+                if (prev[docName]?.status === 'uploading') {
+                  return { ...prev, [docName]: { ...prev[docName], progress: 50 } };
+                }
+                return prev;
+              });
+            }, 500);
+
+            uploadBytes(storageRef, file)
+              .then(async (snapshot) => {
                 try {
-                  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                  const downloadURL = await getDownloadURL(snapshot.ref);
                   setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
                   resolve({ docName, url: downloadURL });
                 } catch (err: any) {
                   setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: 'Failed to get download URL' } }));
                   reject(err);
                 }
-              }
-            );
+              })
+              .catch((error) => {
+                console.error("Upload failed", error);
+                let errorMessage = error.message;
+                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Please log in.';
+                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
+                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
+              });
           });
         });
 
@@ -386,30 +407,35 @@ export default function ApplyService() {
                     {hasError && meta.error && (
                       <p className="text-xs text-red-600 mt-1 font-medium">{meta.error}</p>
                     )}
-                    {meta.status === 'uploading' && (
-                      <div className="mt-3 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                        <div className="bg-primary-600 h-2 rounded-full transition-all duration-300" style={{ width: `${meta.progress}%` }}></div>
+                    {(meta.status === 'uploading' || meta.status === 'success') && (
+                      <div className="mt-3 w-full bg-gray-200 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div 
+                          className={`h-2 rounded-full transition-all duration-300 ${meta.status === 'success' ? 'bg-green-500' : 'bg-primary-600'}`} 
+                          style={{ width: `${meta.progress || 0}%` }}
+                        ></div>
                       </div>
-                    )}
-                    {meta.status === 'success' && (
-                      <p className="text-xs text-green-600 mt-1 font-medium flex items-center">
-                        <span className="w-2 h-2 rounded-full bg-green-500 mr-1.5"></span> Uploaded Successfully
-                      </p>
                     )}
                   </div>
                   
-                  <div className="flex-shrink-0 mt-3 sm:mt-0">
+                  <div className="flex-shrink-0 mt-3 sm:mt-0 flex flex-col items-end">
                     {meta.file ? (
                       <div className="flex flex-col items-end">
-                        <div className="flex items-center bg-white border border-gray-200 px-3 py-2 rounded-md text-sm shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary-500">
-                          <span className="truncate max-w-[150px] text-gray-700 font-medium">{meta.file.name}</span>
+                        <div className={`flex items-center bg-white border py-2 px-3 rounded-md text-sm shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary-500 ${meta.status === 'success' ? 'border-green-200 bg-green-50 text-green-800' : meta.status === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-gray-200'}`}>
+                          <span className="truncate max-w-[150px] font-medium mr-2">{meta.file.name}</span>
                           {meta.status !== 'uploading' && meta.status !== 'success' && (
-                            <button type="button" onClick={() => handleRemoveFile(docName)} className="ml-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-colors" disabled={uploading}>
+                            <button type="button" onClick={() => handleRemoveFile(docName)} className="text-gray-400 hover:text-red-500 hover:bg-red-100 rounded-full p-1 transition-colors flex-shrink-0" disabled={uploading}>
                               <X className="w-4 h-4" />
                             </button>
                           )}
                         </div>
-                        {meta.status === 'uploading' && <span className="text-xs text-primary-600 mt-1 font-medium">{meta.progress}% Uploading...</span>}
+                        {meta.status === 'uploading' && (
+                          <span className="text-xs text-primary-600 mt-1.5 font-semibold tracking-wide animate-pulse">{meta.progress || 0}% Uploading...</span>
+                        )}
+                        {meta.status === 'success' && (
+                          <span className="text-xs text-green-600 mt-1.5 font-semibold tracking-wide flex items-center">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span> Uploaded
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <label className={`cursor-pointer inline-flex items-center px-4 py-2 border ${hasError ? 'border-red-600 text-red-600 hover:bg-red-50' : 'border-primary-600 text-primary-600 hover:bg-primary-50'} text-sm font-medium rounded-md bg-white transition-colors`}>
