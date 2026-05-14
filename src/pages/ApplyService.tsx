@@ -17,7 +17,7 @@ export default function ApplyService() {
   
   const [service, setService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
-  const [files, setFiles] = useState<{ [key: string]: File }>({});
+  const [docsMeta, setDocsMeta] = useState<Record<string, { file: File | null; status: 'idle' | 'uploading' | 'success' | 'error'; progress: number; error: string | null }>>({});
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
@@ -56,17 +56,25 @@ export default function ApplyService() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.size > 2 * 1024 * 1024) {
-        toast.error(`File size must be less than 2MB. ${file.name} is too large.`);
+        setDocsMeta(prev => ({
+          ...prev, 
+          [documentName]: { file: prev[documentName]?.file || null, status: 'error', progress: 0, error: `File size exceeds 2MB limit (${(file.size / 1024 / 1024).toFixed(2)}MB).` }
+        }));
         return;
       }
-      setFiles({ ...files, [documentName]: file });
+      setDocsMeta(prev => ({
+        ...prev, 
+        [documentName]: { file, status: 'idle', progress: 0, error: null }
+      }));
     }
   };
 
   const handleRemoveFile = (documentName: string) => {
-    const newFiles = { ...files };
-    delete newFiles[documentName];
-    setFiles(newFiles);
+    setDocsMeta(prev => {
+      const newMeta = { ...prev };
+      delete newMeta[documentName];
+      return newMeta;
+    });
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -107,13 +115,16 @@ export default function ApplyService() {
     
     if (!formData.applicantPhone.trim()) {
       newErrors.applicantPhone = "Phone Number is required.";
-    } else if (!/^\d{10}$/.test(formData.applicantPhone.replace(/\D/g, ''))) {
-      newErrors.applicantPhone = "Please enter a valid 10-digit phone number.";
+    } else {
+      const digits = formData.applicantPhone.replace(/\D/g, '');
+      if (digits.length < 10 || digits.length > 15) {
+        newErrors.applicantPhone = "Please enter a valid phone number (10 digits minimum).";
+      }
     }
     
     if (!formData.applicantAadhaar.trim()) {
       newErrors.applicantAadhaar = "Aadhaar Number is required.";
-    } else if (!/^\d{12}$/.test(formData.applicantAadhaar.replace(/\s+/g, ''))) {
+    } else if (!/^\d{12}$/.test(formData.applicantAadhaar.replace(/\D/g, ''))) {
       newErrors.applicantAadhaar = "Please enter a valid 12-digit Aadhaar number.";
     }
     
@@ -129,14 +140,26 @@ export default function ApplyService() {
       });
     }
 
-    const missingDocs = service.requiredDocuments.filter(doc => !files[doc]);
+    const missingDocs = service.requiredDocuments.filter(doc => !docsMeta[doc]?.file);
     if (missingDocs.length > 0) {
       newErrors.documents = `Please upload: ${missingDocs.join(', ')}`;
+      setDocsMeta(prev => {
+        const next = { ...prev };
+        missingDocs.forEach(doc => {
+          if (!next[doc]) {
+            next[doc] = { file: null, status: 'error', progress: 0, error: 'This document is missing and required.' };
+          } else {
+            next[doc] = { ...next[doc], status: 'error', error: 'This document is missing and required.' };
+          }
+        });
+        return next;
+      });
     }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      toast.error('Please correct the validation errors before submitting.');
+      const firstError = Object.values(newErrors)[0];
+      toast.error(`Validation Error: ${firstError}`);
       return;
     }
 
@@ -144,47 +167,48 @@ export default function ApplyService() {
     
     // Submit application directly without payment gateway
     try {
-      // 1. Upload files to our custom local express backend to avoid Firebase Storage setup issues
-      const uploadedDocs: Record<string, string> = {};
-      
-      const fileToBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(file);
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = error => reject(error);
-        });
-      };
+      // 1. Upload files to Firebase Storage
+      const uploadPromises = Object.entries(docsMeta)
+        .filter(([_, meta]) => meta.file)
+        .map(([docName, meta]) => {
+          return new Promise<{ docName: string, url: string }>((resolve, reject) => {
+            const file = meta.file!;
+            setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'uploading', progress: 0, error: null } }));
 
-      const uploadPromises = Object.entries(files).map(async ([docName, file]) => {
-        try {
-          if ((file as File).size > 2 * 1024 * 1024) {
-             throw new Error("File must be less than 2MB.");
-          }
-
-          const base64 = await fileToBase64(file as File);
-          
-          const response = await fetch('/api/upload', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                fileName: (file as File).name,
-                base64
-             })
+            const fileExt = file.name.split('.').pop();
+            const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
+            const storageRef = ref(storage, fileName);
+            
+            const uploadTask = uploadBytesResumable(storageRef, file);
+            
+            uploadTask.on('state_changed',
+              (snapshot) => {
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress } }));
+              },
+              (error) => {
+                let errorMessage = error.message;
+                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Check storage rules.';
+                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
+                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
+              },
+              async () => {
+                try {
+                  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                  setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
+                  resolve({ docName, url: downloadURL });
+                } catch (err: any) {
+                  setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: 'Failed to get download URL' } }));
+                  reject(err);
+                }
+              }
+            );
           });
-          
-          if (!response.ok) {
-             throw new Error(`Server returned ${response.status}`);
-          }
-          const data = await response.json();
-          uploadedDocs[docName] = data.url;
-        } catch (uploadError: any) {
-          console.error(`Error uploading ${docName}:`, uploadError);
-          throw new Error(uploadError.message || `Failed to process ${docName}.`);
-        }
-      });
-      
-      await Promise.all(uploadPromises);
+        });
+
+      const results = await Promise.all(uploadPromises);
+      const uploadedDocs: Record<string, string> = {};
+      results.forEach(r => { uploadedDocs[r.docName] = r.url; });
         
         // 2. Create application record
         await addDoc(collection(db, 'applications'), {
@@ -320,40 +344,64 @@ export default function ApplyService() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h2 className="text-xl font-semibold text-gray-900 mb-4 border-b pb-2">Required Documents</h2>
           <div className="space-y-4">
-            {service.requiredDocuments.map((docName, idx) => (
-              <div key={idx} className={`border ${errors.documents && !files[docName] ? 'border-red-300 bg-red-50' : 'border-dashed border-gray-300 bg-slate-50'} rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between`}>
-                <div className="mb-2 sm:mb-0">
-                  <h4 className={`font-medium flex items-center ${errors.documents && !files[docName] ? 'text-red-700' : 'text-gray-900'}`}>
-                    <FileText className={`w-4 h-4 mr-2 ${errors.documents && !files[docName] ? 'text-red-500' : 'text-gray-500'}`} />
-                    {docName}
-                    <span className="text-red-500 ml-1">*</span>
-                  </h4>
-                  <p className={`text-xs ${errors.documents && !files[docName] ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 2MB)</p>
+            {service.requiredDocuments.map((docName, idx) => {
+              const meta = docsMeta[docName] || { file: null, status: 'idle', progress: 0, error: null };
+              const hasError = meta.status === 'error' || (errors.documents && !meta.file);
+              
+              return (
+                <div key={idx} className={`border ${hasError ? 'border-red-300 bg-red-50' : 'border-dashed border-gray-300 bg-slate-50'} rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between`}>
+                  <div className="mb-2 sm:mb-0 w-full sm:w-1/2">
+                    <h4 className={`font-medium flex items-center ${hasError ? 'text-red-700' : 'text-gray-900'}`}>
+                      <FileText className={`w-4 h-4 mr-2 ${hasError ? 'text-red-500' : 'text-gray-500'}`} />
+                      {docName}
+                      <span className="text-red-500 ml-1">*</span>
+                    </h4>
+                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 2MB)</p>
+                    {hasError && meta.error && (
+                      <p className="text-xs text-red-600 mt-1 font-medium">{meta.error}</p>
+                    )}
+                    {meta.status === 'uploading' && (
+                      <div className="mt-3 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div className="bg-primary-600 h-2 rounded-full transition-all duration-300" style={{ width: `${meta.progress}%` }}></div>
+                      </div>
+                    )}
+                    {meta.status === 'success' && (
+                      <p className="text-xs text-green-600 mt-1 font-medium flex items-center">
+                        <span className="w-2 h-2 rounded-full bg-green-500 mr-1.5"></span> Uploaded Successfully
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div className="flex-shrink-0 mt-3 sm:mt-0">
+                    {meta.file ? (
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center bg-white border border-gray-200 px-3 py-2 rounded-md text-sm shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary-500">
+                          <span className="truncate max-w-[150px] text-gray-700 font-medium">{meta.file.name}</span>
+                          {meta.status !== 'uploading' && meta.status !== 'success' && (
+                            <button type="button" onClick={() => handleRemoveFile(docName)} className="ml-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-colors" disabled={uploading}>
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        {meta.status === 'uploading' && <span className="text-xs text-primary-600 mt-1 font-medium">{meta.progress}% Uploading...</span>}
+                      </div>
+                    ) : (
+                      <label className={`cursor-pointer inline-flex items-center px-4 py-2 border ${hasError ? 'border-red-600 text-red-600 hover:bg-red-50' : 'border-primary-600 text-primary-600 hover:bg-primary-50'} text-sm font-medium rounded-md bg-white transition-colors`}>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Select File
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept=".jpg,.jpeg,.png,.pdf"
+                          onChange={(e) => handleFileChange(docName, e)}
+                          disabled={uploading}
+                        />
+                      </label>
+                    )}
+                  </div>
                 </div>
-                
-                <div>
-                  {files[docName] ? (
-                    <div className="flex items-center bg-white border border-green-200 text-green-700 px-3 py-2 rounded-md text-sm">
-                      <span className="truncate max-w-[150px]">{files[docName].name}</span>
-                      <button type="button" onClick={() => handleRemoveFile(docName)} className="ml-2 text-gray-400 hover:text-red-500">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="cursor-pointer inline-flex items-center px-4 py-2 border border-primary-600 text-sm font-medium rounded-md text-primary-600 bg-white hover:bg-primary-50">
-                      <Upload className="w-4 h-4 mr-2" />
-                      Upload File
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".jpg,.jpeg,.png,.pdf"
-                        onChange={(e) => handleFileChange(docName, e)}
-                      />
-                    </label>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {errors.documents && (
             <p className="mt-3 text-sm text-red-600 font-medium">{errors.documents}</p>
