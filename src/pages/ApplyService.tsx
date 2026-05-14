@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Service } from './Services';
@@ -194,31 +194,30 @@ export default function ApplyService() {
             const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
             const storageRef = ref(storage, fileName);
             
-            const uploadTask = uploadBytesResumable(storageRef, file);
-            
-            uploadTask.on('state_changed',
-              (snapshot) => {
-                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress } }));
-              },
-              (error) => {
-                console.error("Upload failed", error);
-                let errorMessage = error.message;
-                if (error.code === 'storage/unauthorized') errorMessage = 'Permission denied. Please log in.';
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errorMessage } }));
-                reject(new Error(`Failed to upload ${docName}: ${errorMessage}`));
-              },
-              async () => {
-                try {
-                  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                  setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
-                  resolve({ docName, url: downloadURL });
-                } catch (err: any) {
-                  setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: 'Failed to get download URL' } }));
-                  reject(err);
-                }
+            // Custom local upload endpoint to bypass Firebase Storage quotas
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Simulating a minor progress jump
+            setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
+
+            fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            })
+            .then(async (response) => {
+              const data = await response.json();
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to upload file');
               }
-            );
+              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
+              resolve({ docName, url: data.url });
+            })
+            .catch((error) => {
+              console.error("Upload failed", error);
+              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: error.message } }));
+              reject(new Error(`Failed to upload ${docName}: ${error.message}`));
+            });
           });
         });
 

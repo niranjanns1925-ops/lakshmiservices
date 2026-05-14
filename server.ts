@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import fs from "fs";
+import multer from "multer";
 
 async function startServer() {
   const app = express();
@@ -10,6 +11,38 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json());
+
+  // Local file upload configuration
+  const uploadDir = path.join(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  const storageConfig = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+      // Safe filename
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "");
+      cb(null, `${Date.now()}-${safeName}`);
+    }
+  });
+
+  const upload = multer({ 
+    storage: storageConfig,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  });
+
+  app.post("/api/upload", upload.single("file"), (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    // Using a relative absolute path to serve the image, since we'll host it in the same app
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+  });
+
+  // Serve the uploads directory statically
+  app.use("/uploads", express.static(uploadDir));
 
   app.post("/api/create-cashfree-order", async (req, res) => {
     try {
