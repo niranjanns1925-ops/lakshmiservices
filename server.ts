@@ -5,6 +5,8 @@ import cors from "cors";
 import fs from "fs";
 import multer from "multer";
 
+import os from "os";
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -13,7 +15,7 @@ async function startServer() {
   app.use(express.json());
 
   // Local file upload configuration
-  const uploadDir = path.join(process.cwd(), "uploads");
+  const uploadDir = path.join(os.tmpdir(), "uploads");
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
@@ -22,7 +24,8 @@ async function startServer() {
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
       // Safe filename
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "");
+      const originalName = file.originalname || "unknown";
+      const safeName = originalName.replace(/[^a-zA-Z0-9.\-_]/g, "");
       cb(null, `${Date.now()}-${safeName}`);
     }
   });
@@ -32,13 +35,25 @@ async function startServer() {
     limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
   });
 
-  app.post("/api/upload", upload.single("file"), (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+  app.post("/api/upload", (req, res, next) => {
+    try {
+      upload.single("file")(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+          return res.status(400).json({ error: err.message });
+        } else if (err) {
+          return res.status(500).json({ error: err.message || "Unknown upload error" });
+        }
+        
+        if (!req.file) {
+          return res.status(400).json({ error: "No file uploaded" });
+        }
+        
+        const fileUrl = `/uploads/${req.file.filename}`;
+        res.json({ url: fileUrl });
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Upload controller crashed" });
     }
-    // Using a relative absolute path to serve the image, since we'll host it in the same app
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({ url: fileUrl });
   });
 
   // Serve the uploads directory statically
@@ -129,6 +144,16 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  // Global error handler to enforce JSON responses
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Global Express Error:", err);
+    if (!res.headersSent) {
+      // If it's a multer payload too large or express body parser error
+      const status = err.status || err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Internal Server Error" });
+    }
   });
 }
 

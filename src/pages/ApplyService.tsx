@@ -57,11 +57,22 @@ export default function ApplyService() {
   const handleFileChange = (documentName: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 400 * 1024) {
-        toast.error(`File size must be less than 400KB. ${file.name} is too large.`);
+      
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+      if (!validTypes.includes(file.type)) {
+        toast.error(`Invalid file type. Only JPG, PNG, and PDF are allowed.`);
         setDocsMeta(prev => ({
           ...prev, 
-          [documentName]: { file: prev[documentName]?.file || null, status: 'error', progress: 0, error: `File size exceeds 400KB limit (${(file.size / 1024).toFixed(2)}KB).` }
+          [documentName]: { file: null, status: 'error', progress: 0, error: 'Invalid file type. Only JPG, PNG, and PDF are allowed.' }
+        }));
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error(`File too large. Maximum size is 5MB.`);
+        setDocsMeta(prev => ({
+          ...prev, 
+          [documentName]: { file: null, status: 'error', progress: 0, error: 'File too large. Maximum size is 5MB.' }
         }));
         return;
       }
@@ -196,7 +207,7 @@ export default function ApplyService() {
             
             // Custom local upload endpoint to bypass Firebase Storage quotas
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('file', file, file.name || `upload_${Date.now()}.bin`);
 
             // Simulating a minor progress jump
             setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
@@ -206,17 +217,34 @@ export default function ApplyService() {
               body: formData
             })
             .then(async (response) => {
-              const data = await response.json();
+              const contentType = response.headers.get('content-type');
               if (!response.ok) {
-                throw new Error(data.error || 'Failed to upload file');
+                if (contentType && contentType.includes('application/json')) {
+                   const data = await response.json();
+                   throw new Error(data.error || 'Failed to upload file');
+                } else if (response.status === 413) {
+                   throw new Error("File is too large. Please upload a smaller file.");
+                } else {
+                   const text = await response.text();
+                   console.error("Non-JSON error response from upload endpoint:", text.substring(0, 500));
+                   throw new Error(`Server error: ${response.status}`);
+                }
               }
+
+              if (!contentType || !contentType.includes('application/json')) {
+                 const text = await response.text();
+                 console.error("Unexpected successful non-JSON response:", text.substring(0, 500));
+                 throw new Error(`Server returned unexpected format. Try again.`);
+              }
+              const data = await response.json();
               setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
               resolve({ docName, url: data.url });
             })
             .catch((error) => {
               console.error("Upload failed", error);
-              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: error.message } }));
-              reject(new Error(`Failed to upload ${docName}: ${error.message}`));
+              const errMsg = error.message && error.message.includes('File too large') ? 'File too large. Please upload a smaller file.' : 'Upload failed, please retry';
+              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errMsg } }));
+              reject(new Error(`Failed to upload ${docName}: ${errMsg}`));
             });
           });
         });
@@ -396,7 +424,7 @@ export default function ApplyService() {
                       {docName}
                       <span className="text-red-500 ml-1">*</span>
                     </h4>
-                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 400KB)</p>
+                    <p className={`text-xs ${hasError ? 'text-red-500' : 'text-gray-500'}`}>Supported: JPG, PNG, PDF (Max 5MB)</p>
                     {hasError && meta.error && (
                       <p className="text-xs text-red-600 mt-1 font-medium">{meta.error}</p>
                     )}
