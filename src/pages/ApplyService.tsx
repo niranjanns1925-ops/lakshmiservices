@@ -8,9 +8,10 @@ import { Service } from './Services';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
-import { Upload, X, FileText, ChevronRight, IndianRupee } from 'lucide-react';
+import { FileText, Upload, X, ChevronRight } from 'lucide-react';
 import { processPayment } from '../utils/payment';
 import imageCompression from 'browser-image-compression';
+import { supabase } from '../utils/supabase/client';
 
 export default function ApplyService() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -205,47 +206,30 @@ export default function ApplyService() {
             const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
             const storageRef = ref(storage, fileName);
             
-            // Custom local upload endpoint to bypass Firebase Storage quotas
-            const formData = new FormData();
-            formData.append('file', file, file.name || `upload_${Date.now()}.bin`);
-
-            // Simulating a minor progress jump
+            // Upload to Supabase Storage
             setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
 
-            fetch('/api/upload', {
-              method: 'POST',
-              body: formData
-            })
-            .then(async (response) => {
-              const contentType = response.headers.get('content-type');
-              if (!response.ok) {
-                if (contentType && contentType.includes('application/json')) {
-                   const data = await response.json();
-                   throw new Error(data.error || 'Failed to upload file');
-                } else if (response.status === 413) {
-                   throw new Error("File is too large. Please upload a smaller file.");
-                } else {
-                   const text = await response.text();
-                   console.error("Non-JSON error response from upload endpoint:", text.substring(0, 500));
-                   throw new Error(`Server error: ${response.status}`);
-                }
+            try {
+              const { data, error } = await supabase.storage
+                .from('documents')
+                .upload(fileName, file, { upsert: true });
+
+              if (error) {
+                throw error;
               }
 
-              if (!contentType || !contentType.includes('application/json')) {
-                 const text = await response.text();
-                 console.error("Unexpected successful non-JSON response:", text.substring(0, 500));
-                 throw new Error(`Server returned unexpected format. Try again.`);
-              }
-              const data = await response.json();
+              const { data: publicUrlData } = supabase.storage
+                .from('documents')
+                .getPublicUrl(fileName);
+
               setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
-              resolve({ docName, url: data.url });
-            })
-            .catch((error) => {
+              resolve({ docName, url: publicUrlData.publicUrl });
+            } catch (error: any) {
               console.error("Upload failed", error);
-              const errMsg = error.message && error.message.includes('File too large') ? 'File too large. Please upload a smaller file.' : 'Upload failed, please retry';
+              const errMsg = error.message && error.message.includes('too large') ? 'File too large. Please upload a smaller file.' : 'Upload failed, please retry';
               setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errMsg } }));
               reject(new Error(`Failed to upload ${docName}: ${errMsg}`));
-            });
+            }
           });
         });
 
