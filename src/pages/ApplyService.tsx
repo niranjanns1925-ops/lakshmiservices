@@ -277,6 +277,8 @@ export default function ApplyService() {
           errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
         } else if (err.code === 'permission-denied') {
           errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
+        } else if (err.message && err.message.includes('Unexpected token')) {
+          errorMessage = 'Database connection error: The backend service might be paused or unavailable. Please check your Supabase project status.';
         } else if (err.message) {
           errorMessage = err.message;
         }
