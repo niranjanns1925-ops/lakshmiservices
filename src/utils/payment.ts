@@ -25,6 +25,7 @@ export const processPayment = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orderId: details.orderId,
           orderAmount: details.amount,
           customerId: `cust_${Date.now()}`, // Or a real internal user ID
           customerName: details.customerName,
@@ -53,16 +54,37 @@ export const processPayment = async (
          redirectTarget: "_modal",
       };
 
-      cashfree.checkout(checkoutOptions).then((result: any) => {
+      cashfree.checkout(checkoutOptions).then(async (result: any) => {
           if (result.error) {
-              // This will be true whenever user clicks on close icon inside the modal or any error happens during the payment
+              // User clicks close icon or any error
               onFailure(new Error(result.error.message || "Payment cancelled or failed."));
           } else if (result.redirect) {
-              // This will be true, if the merchant is not using _modal, thus redirecting
               toast("Redirecting to Cashfree");
-          } else if (result.paymentDetails) {
-              // This will be called whenever the payment is completed successfully
-              onSuccess(data.order_id);
+          } else {
+              // Checkout happened, verify the payment status via backend
+              const verifyId = toast.loading("Verifying payment...");
+              try {
+                const verifyRes = await fetch('/api/verify-cashfree-order', {
+                   method: 'POST',
+                   headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ orderId: data.order_id })
+                });
+                const verifyData = await verifyRes.json();
+                toast.dismiss(verifyId);
+                
+                if (!verifyRes.ok) {
+                   throw new Error(verifyData.error || "Failed to verify transaction");
+                }
+                
+                if (verifyData.order_status === "PAID") {
+                   onSuccess(data.order_id);
+                } else {
+                   throw new Error(`Payment not successful. Status: ${verifyData.order_status}`);
+                }
+              } catch (err: any) {
+                toast.dismiss(verifyId);
+                onFailure(err);
+              }
           }
       });
     } catch (error) {

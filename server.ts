@@ -65,7 +65,11 @@ async function startServer() {
       
       const APP_ID = process.env.CASHFREE_APP_ID;
       const SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
-      const ENV = process.env.CASHFREE_ENVIRONMENT || 'SANDBOX';
+      let ENV = process.env.CASHFREE_ENVIRONMENT;
+      
+      if (!ENV) {
+        ENV = (SECRET_KEY && SECRET_KEY.includes('prod')) ? 'PRODUCTION' : 'SANDBOX';
+      }
       
       if (!APP_ID || !SECRET_KEY) {
          return res.status(500).json({ error: "Cashfree credentials are not configured on the server." });
@@ -84,6 +88,7 @@ async function startServer() {
           "x-client-secret": SECRET_KEY
         },
         body: JSON.stringify({
+          order_id: req.body.orderId || `ORD_${Date.now()}`,
           order_amount: orderAmount,
           order_currency: "INR",
           customer_details: {
@@ -108,6 +113,53 @@ async function startServer() {
       res.json({ ...data, environment: ENV });
     } catch (err: any) {
       console.error("Internal Cashfree integration error:", err);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  });
+
+  app.post("/api/verify-cashfree-order", async (req, res) => {
+    try {
+      const { orderId } = req.body;
+      
+      const APP_ID = process.env.CASHFREE_APP_ID;
+      const SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
+      let ENV = process.env.CASHFREE_ENVIRONMENT;
+      
+      if (!ENV) {
+        ENV = (SECRET_KEY && SECRET_KEY.includes('prod')) ? 'PRODUCTION' : 'SANDBOX';
+      }
+      
+      if (!APP_ID || !SECRET_KEY) {
+         return res.status(500).json({ error: "Cashfree credentials are not configured on the server." });
+      }
+
+      if (!orderId) {
+        return res.status(400).json({ error: "Order ID is required." });
+      }
+
+      const baseUrl = ENV === 'PRODUCTION' 
+        ? `https://api.cashfree.com/pg/orders/${orderId}`
+        : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+
+      const response = await fetch(baseUrl, {
+        method: "GET",
+        headers: {
+          "x-api-version": "2023-08-01",
+          "x-client-id": APP_ID,
+          "x-client-secret": SECRET_KEY
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+         console.error("Cashfree order verification failed:", data);
+         return res.status(response.status).json({ error: data.message || "Failed to verify order." });
+      }
+
+      res.json(data);
+    } catch (err: any) {
+      console.error("Internal Cashfree verification error:", err);
       res.status(500).json({ error: "Internal server error." });
     }
   });
