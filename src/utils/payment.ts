@@ -53,33 +53,16 @@ export const processPayment = async (
          redirectTarget: "_modal",
       };
 
-      cashfree.checkout(checkoutOptions).then(async (result: any) => {
+      cashfree.checkout(checkoutOptions).then((result: any) => {
           if (result.error) {
+              // This will be true whenever user clicks on close icon inside the modal or any error happens during the payment
               onFailure(new Error(result.error.message || "Payment cancelled or failed."));
           } else if (result.redirect) {
+              // This will be true, if the merchant is not using _modal, thus redirecting
               toast("Redirecting to Cashfree");
           } else if (result.paymentDetails) {
-              // Verify on backend
-              try {
-                let vId = toast.loading("Verifying payment...");
-                const verifyRes = await fetch('/api/verify-cashfree-order', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ orderId: data.order_id })
-                });
-                const verifyData = await verifyRes.json();
-                toast.dismiss(vId);
-
-                if (!verifyRes.ok || verifyData.order_status !== 'PAID') {
-                  onFailure(new Error("Payment verification failed."));
-                  return;
-                }
-                
-                onSuccess(data.order_id);
-              } catch (e: any) {
-                toast.dismiss();
-                onFailure(new Error("Payment verification request failed."));
-              }
+              // This will be called whenever the payment is completed successfully
+              onSuccess(data.order_id);
           }
       });
     } catch (error) {

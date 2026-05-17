@@ -44,54 +44,6 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    const checkRedirectedPayment = async () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const orderId = urlParams.get('order_id');
-      if (orderId && user) {
-        toast.loading("Verifying your payment...", { id: 'payment-verify' });
-        try {
-          const verifyRes = await fetch('/api/verify-cashfree-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId })
-          });
-          const verifyData = await verifyRes.json();
-          
-          if (verifyRes.ok && verifyData.order_status === 'PAID') {
-            // Find application and update it
-            const q = query(collection(db, 'applications'), where('orderId', '==', orderId));
-            const querySnapshot = await getDocs(q);
-            
-            if (!querySnapshot.empty) {
-              const docSnap = querySnapshot.docs[0];
-              if (docSnap.data().paymentStatus !== 'Paid') {
-                await updateDoc(doc(db, 'applications', docSnap.id), {
-                  paymentStatus: 'Paid',
-                  transactionId: verifyData.order_id,
-                  updatedAt: new Date()
-                });
-                toast.success("Payment verified successfully!", { id: 'payment-verify' });
-              } else {
-                toast.dismiss('payment-verify');
-              }
-            } else {
-              toast.dismiss('payment-verify');
-            }
-          } else {
-            toast.error("Payment verification failed or is pending.", { id: 'payment-verify' });
-          }
-          
-          // Clean up URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-        } catch (e) {
-          toast.error("Error verifying payment.", { id: 'payment-verify' });
-        }
-      }
-    };
-    checkRedirectedPayment();
-  }, [user]);
-
-  useEffect(() => {
     const fetchApplications = async () => {
       if (!user) return;
       
