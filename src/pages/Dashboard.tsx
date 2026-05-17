@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../utils/supabase/client';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -29,10 +28,15 @@ export default function Dashboard() {
     if (!user) return;
     setUpdatingProfile(true);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        name: profileData.name,
-        phone: profileData.phone
-      });
+      const { error } = await supabase
+        .from('users')
+        .update({
+          name: profileData.name,
+          phone: profileData.phone
+        })
+        .eq('uid', user.id);
+
+      if (error) throw error;
       toast.success("Profile updated successfully!");
       setIsEditProfileOpen(false);
     } catch (error: any) {
@@ -48,20 +52,14 @@ export default function Dashboard() {
       if (!user) return;
       
       try {
-        const q = query(
-          collection(db, 'applications'),
-          where('userId', '==', user.uid),
-          // orderBy('createdAt', 'desc') // Needs index, so we'll sort client-side for simple setup
-        );
-        
-        const querySnapshot = await getDocs(q);
-        const appsData: any[] = [];
-        querySnapshot.forEach((doc) => {
-          appsData.push({ id: doc.id, ...doc.data() });
-        });
-        
-        appsData.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
-        setApplications(appsData);
+        const { data, error } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('userId', user.id)
+          .order('created_at', { ascending: false });
+          
+        if (error) throw error;
+        setApplications(data || []);
       } catch (error) {
         console.error("Error fetching applications:", error);
       } finally {
@@ -146,7 +144,7 @@ export default function Dashboard() {
           </Link>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="w-full min-w-[800px] divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Application ID</th>
@@ -184,7 +182,7 @@ export default function Dashboard() {
                         {app.serviceName}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {app.createdAt ? format(app.createdAt.toDate(), 'PPP') : 'N/A'}
+                        {(app.created_at || app.createdAt) ? format(new Date(app.created_at || app.createdAt), 'PPP') : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(app.status)}

@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../utils/supabase/client';
 import { useAuth } from '../context/AuthContext';
 import { FileText, ArrowLeft, Loader2, Download, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { format } from 'date-fns';
 
 export default function ApplicationDetails() {
-  const { serviceId: id } = useParams<{ serviceId: string }>();
+  const { applicationId: id } = useParams<{ applicationId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [application, setApplication] = useState<any>(null);
@@ -18,15 +17,18 @@ export default function ApplicationDetails() {
     const fetchApplication = async () => {
       if (!user || !id) return;
       try {
-        const docRef = doc(db, 'applications', id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          if (data.userId === user.uid) {
-            setApplication({ id: docSnap.id, ...data });
-          } else {
-            setApplication(null); // unauthorized
-          }
+        const { data, error } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('id', id)
+          .single();
+          
+        if (error) throw error;
+        
+        if (data && data.userId === user.id) {
+          setApplication(data);
+        } else {
+          setApplication(null); // unauthorized
         }
       } catch (error) {
         console.error("Error fetching application details:", error);
@@ -99,7 +101,7 @@ export default function ApplicationDetails() {
                  <div>
                    <span className="text-xs text-gray-500 block">Submitted At</span>
                    <span className="text-sm font-medium text-gray-900">
-                     {application.createdAt ? format(application.createdAt.toDate(), 'PPP p') : 'N/A'}
+                     {(application.created_at || application.createdAt) ? format(new Date(application.created_at || application.createdAt), 'PPP p') : 'N/A'}
                    </span>
                  </div>
                  {application.fee && (

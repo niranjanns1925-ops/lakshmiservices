@@ -3,9 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, initError, firebaseConfig } from '../firebase/config';
+import { supabase } from '../utils/supabase/client';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -28,22 +26,19 @@ export default function Login() {
   });
 
   const onSubmit = async (data: LoginForm) => {
-    if (!auth) {
-      console.error("Firebase initError:", initError);
-      console.log("Firebase config context:", firebaseConfig);
-      toast.error(`Firebase error: ${initError?.message || initError || 'Unknown Error'}. See console for details.`);
-      if (!firebaseConfig?.apiKey) {
-         toast.error("VITE_FIREBASE_API_KEY is undefined on the client-side!");
-      }
-      return;
-    }
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (error) throw error;
+      
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (error: any) {
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+      if (error.message.includes('Invalid login credentials')) {
         toast.error('Invalid email or password.');
       } else {
         toast.error(error.message || 'Failed to login. Check your credentials.');
@@ -54,35 +49,17 @@ export default function Login() {
   };
 
   const handleGoogleSignIn = async () => {
-    if (!auth) {
-      toast.error('Firebase is not configured properly. Please check your API keys.');
-      return;
-    }
     setIsGoogleLoading(true);
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (!docSnap.exists()) {
-        await setDoc(docRef, {
-          uid: user.uid,
-          name: user.displayName || 'Google User',
-          email: user.email,
-          phone: user.phoneNumber || '',
-          role: user.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
-          createdAt: serverTimestamp()
-        });
-      }
-      
-      toast.success('Logged in with Google successfully');
-      navigate('/dashboard');
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      });
+      if (error) throw error;
     } catch (error: any) {
       toast.error(error.message || 'Failed to login with Google.');
-    } finally {
       setIsGoogleLoading(false);
     }
   };
@@ -97,12 +74,6 @@ export default function Login() {
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Welcome Back 👋</h1>
             <p className="text-gray-500 mt-2">Login to access your E-Sevai dashboard</p>
-            {initError && (
-              <div className="bg-red-50 text-red-600 p-3 rounded mt-4 text-left w-full text-sm">
-                <strong>Firebase Init Error:</strong><br/>
-                {initError?.message || String(initError)}
-              </div>
-            )}
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

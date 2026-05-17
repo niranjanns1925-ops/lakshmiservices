@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { supabase } from '../utils/supabase/client';
 import { useAuth } from '../context/AuthContext';
 import { Service } from './Services';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
 import { FileText, Upload, X, ChevronRight } from 'lucide-react';
-import { processPayment } from '../utils/payment';
 import imageCompression from 'browser-image-compression';
 
 export default function ApplyService() {
@@ -31,14 +28,27 @@ export default function ApplyService() {
   const [customData, setCustomData] = useState<Record<string, any>>({});
 
   useEffect(() => {
+    if (appUser) {
+      setFormData(prev => ({
+        ...prev,
+        applicantName: prev.applicantName || appUser.name || '',
+        applicantPhone: prev.applicantPhone || appUser.phone || '',
+      }));
+    }
+  }, [appUser]);
+
+  useEffect(() => {
     const fetchService = async () => {
       try {
         if (!serviceId) return;
-        const docRef = doc(db, 'services', serviceId);
-        const docSnap = await getDoc(docRef);
-        
-        if (docSnap.exists()) {
-          setService({ id: docSnap.id, ...docSnap.data() } as Service);
+        const { data, error } = await supabase
+          .from('services')
+          .select('*')
+          .eq('id', serviceId)
+          .single();
+          
+        if (data) {
+          setService(data as Service);
         } else {
           // Fallback logic for demo preview if Firestore is unpopulated
           if (serviceId === '1') setService({ id: '1', title: 'PAN Card Application', description: 'Apply for a new Permanent Account Number.', price: 200, requiredDocuments: ['Aadhaar Card', 'Passport Photo', 'Signature'], active: true, category: 'Identity' });
@@ -181,7 +191,7 @@ export default function ApplyService() {
 
     const onPaymentSuccess = async (transactionId: string) => {
       try {
-        // 1. Upload files to Firebase Storage
+        // 1. Upload files to Supabase Storage
         const uploadPromises = Object.entries(docsMeta)
           .filter(([_, meta]) => (meta as any).file)
           .map(([docName, meta]) => {
@@ -203,20 +213,28 @@ export default function ApplyService() {
               }
 
               const fileExt = file.name.split('.').pop();
-              const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\\s+/g, '_')}.${fileExt}`;
-              const storageRef = ref(storage, fileName);
+              const fileName = `applications/${user?.id}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
               
               setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
 
               try {
-                await uploadBytes(storageRef, file);
-                const url = await getDownloadURL(storageRef);
+                const { data, error } = await supabase.storage
+                  .from('applications')
+                  .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+                if (error) throw error;
+
+                const { data: publicUrlData } = supabase.storage
+                  .from('applications')
+                  .getPublicUrl(fileName);
+
+                const url = publicUrlData.publicUrl;
 
                 setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
                 resolve({ docName, url });
               } catch (error: any) {
                 console.error("Upload failed", error);
-                const errMsg = error.message && error.message.includes('too large') ? 'File too large. Please upload a smaller file.' : 'Upload failed, please retry';
+                const errMsg = error.message && error.message.includes('too large') ? 'File too large. Please upload a smaller file.' : (error.message || 'Upload failed, please retry');
                 setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errMsg } }));
                 reject(new Error(`Failed to upload ${docName}: ${errMsg}`));
               }
@@ -228,32 +246,34 @@ export default function ApplyService() {
         results.forEach(r => { uploadedDocs[r.docName] = r.url; });
 
         try {
-          await addDoc(collection(db, 'applications'), {
-            userId: user?.uid,
-            userEmail: user?.email,
-            serviceId: service.id,
-            serviceName: service.title,
-            applicantDetails: { ...formData, ...customData },
-            documents: uploadedDocs,
-            status: 'Submitted',
-            paymentStatus: transactionId.startsWith('FREE_') ? 'Free Bypass' : 'Paid',
-            transactionId: transactionId,
-            fee: service.price,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
+          const { error: dbError } = await supabase
+            .from('applications')
+            .insert({
+              userId: user?.id,
+              userEmail: user?.email,
+              serviceId: service.id,
+              serviceName: service.title,
+              applicantDetails: { ...formData, ...customData },
+              documents: uploadedDocs,
+              status: 'Submitted',
+              paymentStatus: transactionId.startsWith('FREE_') ? 'Free Bypass' : 'Paid',
+              transactionId: transactionId,
+              fee: service.price,
+            });
+          
+          if (dbError) throw dbError;
           
           toast.success('Application submitted successfully!');
           navigate('/dashboard');
         } catch(err: any) {
-          console.error("Firestore save error after payment:", err);
+          console.error("Supabase save error after payment:", err);
           toast.error("Failed to save application. Please contact support.", { duration: 6000 });
         }
       } catch (err: any) {
         console.error("Submission error:", err);
         
         let errorMessage = 'Application creation failed. Please try again.';
-        if (err.code === 'storage/retry-limit-exceeded' || err.code === 'storage/unauthorized') {
+        if (err.message && err.message.toLowerCase().includes('storage')) {
           errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
         } else if (err.code === 'permission-denied') {
           errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
@@ -268,25 +288,8 @@ export default function ApplyService() {
       }
     };
 
-    if (service.price <= 0) {
+      // Payment bypassed
       onPaymentSuccess(`FREE_${Date.now()}`);
-    } else {
-      processPayment(
-        'cashfree',
-        {
-          orderId: `ORD_${Date.now()}`, // Not strictly needed by backend but passed logically
-          amount: service.price,
-          customerName: formData.applicantName,
-          customerEmail: user?.email || 'test@example.com',
-          customerPhone: formData.applicantPhone,
-        },
-        onPaymentSuccess,
-        (error) => {
-          toast.error(`Payment Failed: ${error.message}`);
-          setUploading(false);
-        }
-      );
-    }
   };
 
   if (loading) return (

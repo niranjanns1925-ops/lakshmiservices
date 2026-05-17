@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, updateDoc, doc, addDoc, deleteDoc } from 'firebase/firestore';
+import { supabase } from '../utils/supabase/client';
 import * as XLSX from 'xlsx';
-import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -23,20 +22,22 @@ export default function AdminDashboard() {
 
   const fetchApplications = async () => {
     try {
-      const q = query(collection(db, 'applications'));
-      const querySnapshot = await getDocs(q);
-      const appsData: any[] = [];
+      const { data, error } = await supabase
+        .from('applications')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      
+      const appsData = data || [];
       let revenue = 0;
       
-      querySnapshot.forEach((document) => {
-        const data = document.data();
-        appsData.push({ id: document.id, ...data });
-        if (data.status === 'Completed' || data.status === 'Approved') {
-          revenue += data.fee || 0;
+      appsData.forEach((app) => {
+        if (app.status === 'Completed' || app.status === 'Approved') {
+          revenue += app.fee || 0;
         }
       });
       
-      appsData.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
       setApplications(appsData);
       
       setStats({
@@ -53,10 +54,9 @@ export default function AdminDashboard() {
 
   const fetchServices = async () => {
     try {
-      const querySnapshot = await getDocs(collection(db, 'services'));
-      const srvData: any[] = [];
-      querySnapshot.forEach((doc) => srvData.push({ id: doc.id, ...doc.data() }));
-      setServices(srvData);
+      const { data, error } = await supabase.from('services').select('*');
+      if (error) throw error;
+      setServices(data || []);
     } catch (error) {
       console.error("Error fetching services:", error);
     }
@@ -74,26 +74,32 @@ export default function AdminDashboard() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
 
+  const getAppDate = (app: any) => {
+    if (app.created_at) return new Date(app.created_at).getTime();
+    if (app.createdAt) return new Date(app.createdAt).getTime();
+    return 0;
+  };
+
   const handleDownloadExcel = () => {
     let filteredData = applications;
     const now = new Date();
     
     if (downloadRange === 'today') {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      filteredData = applications.filter(app => app.createdAt?.toMillis() >= todayStart.getTime());
+      filteredData = applications.filter(app => getAppDate(app) >= todayStart.getTime());
     } else if (downloadRange === 'month') {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      filteredData = applications.filter(app => app.createdAt?.toMillis() >= monthStart.getTime());
+      filteredData = applications.filter(app => getAppDate(app) >= monthStart.getTime());
     } else if (downloadRange === 'year') {
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      filteredData = applications.filter(app => app.createdAt?.toMillis() >= yearStart.getTime());
+      filteredData = applications.filter(app => getAppDate(app) >= yearStart.getTime());
     } else if (downloadRange === 'custom') {
       const start = new Date(customStartDate);
       const end = new Date(customEndDate);
       end.setHours(23, 59, 59, 999);
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
         filteredData = applications.filter(app => {
-          const t = app.createdAt?.toMillis() || 0;
+          const t = getAppDate(app);
           return t >= start.getTime() && t <= end.getTime();
         });
       }
@@ -104,17 +110,20 @@ export default function AdminDashboard() {
       return;
     }
 
-    const excelData = filteredData.map(app => ({
-      'Application ID': app.id,
-      'Applicant Name': app.applicantDetails?.applicantName || '',
-      'Phone Number': app.applicantDetails?.applicantPhone || '',
-      'Aadhaar': app.applicantDetails?.applicantAadhaar || '',
-      'Address': app.applicantDetails?.address || '',
-      'Service Name': app.serviceName || '',
-      'Status': app.status || '',
-      'Fee': app.fee || 0,
-      'Submitted At': app.createdAt ? format(app.createdAt.toDate(), 'dd MMM yyyy, hh:mm a') : '',
-    }));
+    const excelData = filteredData.map(app => {
+      const t = getAppDate(app);
+      return {
+        'Application ID': app.id,
+        'Applicant Name': app.applicantDetails?.applicantName || '',
+        'Phone Number': app.applicantDetails?.applicantPhone || '',
+        'Aadhaar': app.applicantDetails?.applicantAadhaar || '',
+        'Address': app.applicantDetails?.address || '',
+        'Service Name': app.serviceName || '',
+        'Status': app.status || '',
+        'Fee': app.fee || 0,
+        'Submitted At': t ? format(t, 'dd MMM yyyy, hh:mm a') : '',
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     const workbook = XLSX.utils.book_new();
@@ -132,13 +141,14 @@ export default function AdminDashboard() {
     try {
       const updateData: any = {
         status: newStatus,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       };
       if (reason) {
         updateData.rejectionReason = reason;
       }
 
-      await updateDoc(doc(db, 'applications', appId), updateData);
+      const { error } = await supabase.from('applications').update(updateData).eq('id', appId);
+      if (error) throw error;
       toast.success(newStatus === 'Rejected' ? 'Application rejected' : `Status updated to ${newStatus}`);
       fetchApplications();
     } catch (error) {
@@ -160,9 +170,9 @@ export default function AdminDashboard() {
 
 
   const filteredApps = applications.filter(app => 
-    app.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.serviceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.applicantDetails?.applicantName.toLowerCase().includes(searchTerm.toLowerCase())
+    String(app.id).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (app.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (app.applicantDetails?.applicantName || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Chart Data Preparation
@@ -196,7 +206,7 @@ export default function AdminDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Admin Control Panel</h1>
           <p className="text-gray-500">Manage E-Sevai applications, services and analytics</p>
         </div>
-        <div className="flex bg-slate-200 p-1 rounded-lg">
+        <div className="flex bg-slate-200 p-1 rounded-lg overflow-x-auto whitespace-nowrap">
           <button 
             onClick={() => setActiveTab('analytics')}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'analytics' ? 'bg-white text-primary-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
@@ -388,7 +398,7 @@ export default function AdminDashboard() {
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
                 <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
                   <h3 className="text-xl font-bold text-gray-900 mb-2">Reject Application</h3>
-                  <p className="text-sm text-gray-500 mb-4">Please provide a reason for rejecting this application (App ID: {rejectingApp.id.slice(0,8)}).</p>
+                  <p className="text-sm text-gray-500 mb-4">Please provide a reason for rejecting this application (App ID: {String(rejectingApp.id).slice(0,8)}).</p>
                   
                   <div className="mb-6">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Rejection Reason <span className="text-red-500">*</span></label>
@@ -495,7 +505,7 @@ export default function AdminDashboard() {
                             <div>
                               <span className="text-xs text-gray-500 block">Submitted At</span>
                               <span className="text-sm font-medium text-gray-900">
-                                {viewingApp.createdAt ? format(viewingApp.createdAt.toDate(), 'dd MMM yyyy, hh:mm a') : 'N/A'}
+                                {getAppDate(viewingApp) ? format(getAppDate(viewingApp), 'dd MMM yyyy, hh:mm a') : 'N/A'}
                               </span>
                             </div>
                             <div>
@@ -557,10 +567,10 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[800px] text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">App ID</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">App ID</th>
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Applicant</th>
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Service</th>
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
@@ -576,13 +586,13 @@ export default function AdminDashboard() {
                 ) : (
                   filteredApps.map(app => (
                     <tr key={app.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-4 text-sm text-gray-900 font-mono">{app.id.slice(0, 8)}</td>
+                      <td className="p-4 text-sm text-gray-900 font-mono">{String(app.id).slice(0, 8)}</td>
                       <td className="p-4 text-sm font-medium text-gray-900">
                         {app.applicantDetails?.applicantName || 'N/A'}
                         <div className="text-xs text-gray-500 font-normal">{app.applicantDetails?.applicantPhone}</div>
                       </td>
                       <td className="p-4 text-sm text-gray-600">{app.serviceName}</td>
-                      <td className="p-4 text-sm text-gray-500">{app.createdAt ? format(app.createdAt.toDate(), 'dd MMM yyyy') : 'N/A'}</td>
+                      <td className="p-4 text-sm text-gray-500">{getAppDate(app) ? format(getAppDate(app), 'dd MMM yyyy') : 'N/A'}</td>
                       <td className="p-4">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full 
                           ${app.status === 'Approved' || app.status === 'Completed' ? 'bg-green-100 text-green-800' : 
@@ -642,11 +652,9 @@ function AdminsManager() {
 
   const fetchUsers = async () => {
     try {
-      const q = query(collection(db, 'users'));
-      const snap = await getDocs(q);
-      const data: any[] = [];
-      snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-      setUsers(data);
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) throw error;
+      setUsers(data || []);
     } catch (err) {
       toast.error('Failed to load users');
     } finally {
@@ -660,7 +668,8 @@ function AdminsManager() {
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      const { error } = await supabase.from('users').update({ role: newRole }).eq('id', userId);
+      if (error) throw error;
       toast.success(`User role updated to ${newRole}`);
       fetchUsers();
     } catch (err) {
@@ -692,7 +701,7 @@ function AdminsManager() {
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
+        <table className="w-full min-w-[800px] text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
@@ -771,7 +780,8 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
   const handleDelete = async (id: string) => {
     if (window.confirm("Are you sure you want to delete this service?")) {
       try {
-        await deleteDoc(doc(db, 'services', id));
+        const { error } = await supabase.from('services').delete().eq('id', id);
+        if (error) throw error;
         toast.success("Service deleted");
         refreshServices();
       } catch (error) {
@@ -782,7 +792,8 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
 
   const handleToggleActive = async (id: string, current: boolean) => {
     try {
-      await updateDoc(doc(db, 'services', id), { active: !current });
+      const { error } = await supabase.from('services').update({ active: !current }).eq('id', id);
+      if (error) throw error;
       toast.success(current ? "Service deactivated" : "Service activated");
       refreshServices();
     } catch (error) {
@@ -831,21 +842,22 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
       const cleanFields = newSvc.customFields.map(cf => ({ ...cf, name: cf.label.toLowerCase().replace(/[^a-z0-9]/g, '_') })).filter(cf => cf.label.trim() !== '');
       
       if (editingId) {
-        await updateDoc(doc(db, 'services', editingId), {
+        const { error } = await supabase.from('services').update({
           ...newSvc,
           requiredDocuments: cleanDocs,
           customFields: cleanFields,
-          updatedAt: new Date()
-        });
+          updatedAt: new Date().toISOString()
+        }).eq('id', editingId);
+        if (error) throw error;
         toast.success("Service updated successfully!");
       } else {
-        await addDoc(collection(db, 'services'), {
+        const { error } = await supabase.from('services').insert({
           ...newSvc,
           requiredDocuments: cleanDocs,
           customFields: cleanFields,
           active: true,
-          createdAt: new Date()
         });
+        if (error) throw error;
         toast.success("Service created successfully!");
       }
       
@@ -943,7 +955,7 @@ function ServicesManager({ services, refreshServices }: { services: any[], refre
             <Button onClick={() => setIsAdding(true)}><Plus className="w-4 h-4 mr-2" /> Add Service</Button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[800px] text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Service Name</th>
