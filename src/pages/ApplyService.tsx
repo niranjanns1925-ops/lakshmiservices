@@ -212,7 +212,7 @@ export default function ApplyService() {
             try {
               const { data, error } = await supabase.storage
                 .from('documents')
-                .upload(fileName, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+                .upload(fileName, file, { upsert: true });
 
               if (error) {
                 throw error;
@@ -236,10 +236,62 @@ export default function ApplyService() {
       const results = await Promise.all(uploadPromises);
       const uploadedDocs: Record<string, string> = {};
       results.forEach(r => { uploadedDocs[r.docName] = r.url; });
-      setUploading(false);
 
-      // Bypass Cashfree Payment - Make it free
-      try {
+      // Initiate Payment
+      if (service.price > 0) {
+        const orderId = `ORD_${Date.now()}`;
+        const paymentDetails = {
+          orderId,
+          amount: service.price,
+          customerName: formData.applicantName,
+          customerEmail: user?.email || 'test@example.com',
+          customerPhone: formData.applicantPhone,
+        };
+
+        // SAVE FIRST as Pending
+        const docRef = await addDoc(collection(db, 'applications'), {
+          userId: user?.uid,
+          userEmail: user?.email,
+          serviceId: service.id,
+          serviceName: service.title,
+          applicantDetails: { ...formData, ...customData },
+          documents: uploadedDocs,
+          status: 'Submitted',
+          paymentStatus: 'Pending',
+          transactionId: null,
+          orderId: orderId,
+          fee: service.price,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          processPayment('cashfree', paymentDetails, 
+            async (transactionId) => {
+              try {
+                // UPDATE to Paid if not redirected
+                const { doc, updateDoc } = await import('firebase/firestore');
+                await updateDoc(docRef, {
+                  paymentStatus: 'Paid',
+                  transactionId: transactionId,
+                  updatedAt: serverTimestamp()
+                });
+                
+                toast.success('Payment successful and application submitted!');
+                resolve();
+              } catch(err) {
+                console.error("Firestore save error after payment:", err);
+                toast.error("Payment was successful but failed to save application. Please contact support.");
+                reject(err);
+              }
+            }, 
+            (error) => {
+              reject(new Error(error.message || 'Payment failed'));
+            }
+          );
+        });
+      } else {
+        // Free service
         await addDoc(collection(db, 'applications'), {
           userId: user?.uid,
           userEmail: user?.email,
@@ -248,20 +300,16 @@ export default function ApplyService() {
           applicantDetails: { ...formData, ...customData },
           documents: uploadedDocs,
           status: 'Submitted',
-          paymentStatus: 'Paid (Free Bypass)',
+          paymentStatus: 'Paid (Free)',
           transactionId: `FREE_${Date.now()}`,
           fee: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
-        
-        toast.success('Application submitted successfully for free!');
-        navigate('/dashboard');
-      } catch(err: any) {
-        console.error("Firestore save error after payment:", err);
-        toast.error("Failed to save application. Please contact support.", { duration: 6000 });
+        toast.success('Application submitted successfully!');
       }
 
+      navigate('/dashboard');
     } catch (err: any) {
       console.error("Submission error:", err);
       
@@ -306,10 +354,10 @@ export default function ApplyService() {
         <div className="flex justify-between items-center bg-primary-50 p-4 rounded-lg">
           <div>
             <h3 className="font-semibold text-primary-900">Application Fee</h3>
-            <p className="text-sm text-primary-700">Special completely free bypass applied</p>
+            <p className="text-sm text-primary-700">{service.price > 0 ? 'Required fee to process your application.' : 'This service is currently free.'}</p>
           </div>
           <div className="text-2xl font-bold text-primary-700 flex items-center">
-            FREE
+            {service.price > 0 ? `₹${service.price}` : 'FREE'}
           </div>
         </div>
       </div>
