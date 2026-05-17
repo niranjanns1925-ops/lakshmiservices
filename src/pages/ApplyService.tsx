@@ -212,7 +212,7 @@ export default function ApplyService() {
             try {
               const { data, error } = await supabase.storage
                 .from('documents')
-                .upload(fileName, file, { upsert: true });
+                .upload(fileName, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
 
               if (error) {
                 throw error;
