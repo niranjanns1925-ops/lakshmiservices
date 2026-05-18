@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase/client';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { FileText, Clock, CheckCircle2, XCircle, AlertCircle, Eye, Download, Loader2, Edit, X } from 'lucide-react';
@@ -10,12 +10,19 @@ import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user, appUser } = useAuth();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [profileData, setProfileData] = useState({ name: '', phone: '' });
   const [updatingProfile, setUpdatingProfile] = useState(false);
+
+  useEffect(() => {
+    if (appUser?.role === 'admin') {
+      navigate('/admin');
+    }
+  }, [appUser, navigate]);
 
   useEffect(() => {
     if (appUser) {
