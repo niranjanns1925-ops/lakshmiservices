@@ -55,9 +55,12 @@ export default function Register() {
 
       if (error) throw error;
       
-      if (authData.user) {
+      if (authData.user && authData.session) {
         toast.success('Registration successful!');
         navigate('/dashboard');
+      } else if (authData.user && !authData.session) {
+        toast.success('Registration successful! Please check your email to verify your account.');
+        navigate('/login');
       }
     } catch (error: any) {
       if (error.message.includes('already registered')) {
