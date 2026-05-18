@@ -46,9 +46,9 @@ export default function AdminDashboard() {
         approved: appsData.filter(a => ['Approved', 'Completed'].includes(a.status)).length,
         revenue
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching applications:", error);
-      toast.error("Failed to load applications");
+      toast.error(`Failed to load applications: ${error.message || JSON.stringify(error)}`);
     }
   };
 

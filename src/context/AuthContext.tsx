@@ -81,13 +81,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data) {
         setAppUser(data as AppUser);
       } else {
-        setAppUser({
+        const newUser: AppUser = {
           uid: user.id,
           email: user.email || '',
           name: user.user_metadata?.full_name || 'User',
           role: user.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
           phone: ''
-        });
+        };
+        setAppUser(newUser);
+        
+        // Ensure user is inserted into the public.users table
+        const { error: insertError } = await supabase.from('users').insert([{
+           uid: newUser.uid,
+           email: newUser.email,
+           name: newUser.name,
+           role: newUser.role,
+           phone: newUser.phone
+        }]);
+        if (insertError) {
+           console.error("Error inserting new user:", insertError);
+        }
       }
     } catch (error) {
       console.error("Error in fetchAppUser:", error);

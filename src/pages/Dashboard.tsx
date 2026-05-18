@@ -67,8 +67,9 @@ export default function Dashboard() {
           
         if (error) throw error;
         setApplications(data || []);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching applications:", error);
+        toast.error(`Failed to load applications: ${error.message || JSON.stringify(error)}`);
       } finally {
         setLoading(false);
       }
