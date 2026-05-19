@@ -204,7 +204,6 @@ export default function ApplyService() {
 
             const fileExt = file.name.split('.').pop();
             const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
-            const storageRef = ref(storage, fileName);
             
             // Upload to Supabase Storage
             setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));

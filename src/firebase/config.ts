@@ -9,7 +9,7 @@ const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyC9quSO76Er4J4E-3EDqt_zaMDlvg60eBE",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "online-9f1bf.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "online-9f1bf",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "online-9f1bf.firebasestorage.app",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "online-9f1bf.appspot.com",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "917304515219",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:917304515219:web:5a211d40a255283fc40b66",
   measurementId: "G-VGXE21RRNW"
