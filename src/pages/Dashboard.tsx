@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase/client';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { FileText, Clock, CheckCircle2, XCircle, AlertCircle, Eye, Download, Loader2, Edit, X } from 'lucide-react';
@@ -10,19 +11,12 @@ import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user, appUser } = useAuth();
-  const navigate = useNavigate();
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [profileData, setProfileData] = useState({ name: '', phone: '' });
   const [updatingProfile, setUpdatingProfile] = useState(false);
-
-  useEffect(() => {
-    if (appUser?.role === 'admin') {
-      navigate('/admin');
-    }
-  }, [appUser, navigate]);
 
   useEffect(() => {
     if (appUser) {
@@ -35,15 +29,10 @@ export default function Dashboard() {
     if (!user) return;
     setUpdatingProfile(true);
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          name: profileData.name,
-          phone: profileData.phone
-        })
-        .eq('uid', user.id);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'users', user.uid), {
+        name: profileData.name,
+        phone: profileData.phone
+      });
       toast.success("Profile updated successfully!");
       setIsEditProfileOpen(false);
     } catch (error: any) {
@@ -55,21 +44,74 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    const checkRedirectedPayment = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const orderId = urlParams.get('order_id');
+      if (orderId && user) {
+        toast.loading("Verifying your payment...", { id: 'payment-verify' });
+        try {
+          const verifyRes = await fetch('/api/verify-cashfree-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId })
+          });
+          const verifyData = await verifyRes.json();
+          
+          if (verifyRes.ok && verifyData.order_status === 'PAID') {
+            // Find application and update it
+            const q = query(collection(db, 'applications'), where('orderId', '==', orderId));
+            const querySnapshot = await getDocs(q);
+            
+            if (!querySnapshot.empty) {
+              const docSnap = querySnapshot.docs[0];
+              if (docSnap.data().paymentStatus !== 'Paid') {
+                await updateDoc(doc(db, 'applications', docSnap.id), {
+                  paymentStatus: 'Paid',
+                  transactionId: verifyData.order_id,
+                  updatedAt: new Date()
+                });
+                toast.success("Payment verified successfully!", { id: 'payment-verify' });
+              } else {
+                toast.dismiss('payment-verify');
+              }
+            } else {
+              toast.dismiss('payment-verify');
+            }
+          } else {
+            toast.error("Payment verification failed or is pending.", { id: 'payment-verify' });
+          }
+          
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (e) {
+          toast.error("Error verifying payment.", { id: 'payment-verify' });
+        }
+      }
+    };
+    checkRedirectedPayment();
+  }, [user]);
+
+  useEffect(() => {
     const fetchApplications = async () => {
       if (!user) return;
       
       try {
-        const { data, error } = await supabase
-          .from('applications')
-          .select('*')
-          .eq('userId', user.id)
-          .order('created_at', { ascending: false });
-          
-        if (error) throw error;
-        setApplications(data || []);
-      } catch (error: any) {
+        const q = query(
+          collection(db, 'applications'),
+          where('userId', '==', user.uid),
+          // orderBy('createdAt', 'desc') // Needs index, so we'll sort client-side for simple setup
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const appsData: any[] = [];
+        querySnapshot.forEach((doc) => {
+          appsData.push({ id: doc.id, ...doc.data() });
+        });
+        
+        appsData.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
+        setApplications(appsData);
+      } catch (error) {
         console.error("Error fetching applications:", error);
-        toast.error(`Failed to load applications: ${error.message || JSON.stringify(error)}`);
       } finally {
         setLoading(false);
       }
@@ -152,7 +194,7 @@ export default function Dashboard() {
           </Link>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Application ID</th>
@@ -190,7 +232,7 @@ export default function Dashboard() {
                         {app.serviceName}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {(app.created_at || app.createdAt) ? format(new Date(app.created_at || app.createdAt), 'PPP') : 'N/A'}
+                        {app.createdAt ? format(app.createdAt.toDate(), 'PPP') : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(app.status)}

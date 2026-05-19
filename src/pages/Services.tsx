@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase/client';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../firebase/config';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Search, Loader2, IndianRupee } from 'lucide-react';
@@ -24,12 +25,12 @@ export default function Services() {
   useEffect(() => {
     const fetchServices = async () => {
       try {
-        const { data, error } = await supabase
-          .from('services')
-          .select('*')
-          .eq('active', true);
-          
-        const servicesData: Service[] = data || [];
+        const q = query(collection(db, 'services'), where('active', '==', true));
+        const querySnapshot = await getDocs(q);
+        const servicesData: Service[] = [];
+        querySnapshot.forEach((doc) => {
+          servicesData.push({ id: doc.id, ...doc.data() } as Service);
+        });
         
         // Mock data if Firestore is empty (for preview purposes)
         if (servicesData.length === 0) {

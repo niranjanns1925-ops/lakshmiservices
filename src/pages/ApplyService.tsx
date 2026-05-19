@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../utils/supabase/client';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { Service } from './Services';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
 import { FileText, Upload, X, ChevronRight } from 'lucide-react';
+import { processPayment } from '../utils/payment';
 import imageCompression from 'browser-image-compression';
+import { supabase } from '../utils/supabase/client';
 
 export default function ApplyService() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -28,27 +32,14 @@ export default function ApplyService() {
   const [customData, setCustomData] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    if (appUser) {
-      setFormData(prev => ({
-        ...prev,
-        applicantName: prev.applicantName || appUser.name || '',
-        applicantPhone: prev.applicantPhone || appUser.phone || '',
-      }));
-    }
-  }, [appUser]);
-
-  useEffect(() => {
     const fetchService = async () => {
       try {
         if (!serviceId) return;
-        const { data, error } = await supabase
-          .from('services')
-          .select('*')
-          .eq('id', serviceId)
-          .single();
-          
-        if (data) {
-          setService(data as Service);
+        const docRef = doc(db, 'services', serviceId);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          setService({ id: docSnap.id, ...docSnap.data() } as Service);
         } else {
           // Fallback logic for demo preview if Firestore is unpopulated
           if (serviceId === '1') setService({ id: '1', title: 'PAN Card Application', description: 'Apply for a new Permanent Account Number.', price: 200, requiredDocuments: ['Aadhaar Card', 'Passport Photo', 'Signature'], active: true, category: 'Identity' });
@@ -188,110 +179,153 @@ export default function ApplyService() {
     }
 
     setUploading(true);
+    
+    try {
+      // 1. Upload files to Firebase Storage
+      const uploadPromises = Object.entries(docsMeta)
+        .filter(([_, meta]) => (meta as any).file)
+        .map(([docName, meta]) => {
+          return new Promise<{ docName: string, url: string }>(async (resolve, reject) => {
+            let file = (meta as any).file!;
+            setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'uploading', progress: 0, error: null } }));
 
-    const onPaymentSuccess = async (transactionId: string) => {
-      try {
-        // 1. Upload files to Supabase Storage
-        const uploadPromises = Object.entries(docsMeta)
-          .filter(([_, meta]) => (meta as any).file)
-          .map(([docName, meta]) => {
-            return new Promise<{ docName: string, url: string }>(async (resolve, reject) => {
-              let file = (meta as any).file!;
-              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'uploading', progress: 0, error: null } }));
-
-              if (file.type.startsWith('image/')) {
-                try {
-                  const options = {
-                    maxSizeMB: 2,
-                    maxWidthOrHeight: 1920,
-                    useWebWorker: true,
-                  };
-                  file = await imageCompression(file, options);
-                } catch (error) {
-                  console.error("Compression missed", error);
-                }
-              }
-
-              const fileExt = file.name.split('.').pop();
-              const fileName = `applications/${user?.id}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
-              
-              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
-
+            if (file.type.startsWith('image/')) {
               try {
-                const { data, error } = await supabase.storage
-                  .from('applications')
-                  .upload(fileName, file, { cacheControl: '3600', upsert: false });
-
-                if (error) throw error;
-
-                const { data: publicUrlData } = supabase.storage
-                  .from('applications')
-                  .getPublicUrl(fileName);
-
-                const url = publicUrlData.publicUrl;
-
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
-                resolve({ docName, url });
-              } catch (error: any) {
-                console.error("Upload failed", error);
-                const errMsg = error.message && error.message.includes('too large') ? 'File too large. Please upload a smaller file.' : (error.message || 'Upload failed, please retry');
-                setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errMsg } }));
-                reject(new Error(`Failed to upload ${docName}: ${errMsg}`));
+                const options = {
+                  maxSizeMB: 2,
+                  maxWidthOrHeight: 1920,
+                  useWebWorker: true,
+                };
+                file = await imageCompression(file, options);
+              } catch (error) {
+                console.error("Compression missed", error);
               }
-            });
+            }
+
+            const fileExt = file.name.split('.').pop();
+            const fileName = `applications/${user?.uid}/${service.id}_${Date.now()}_${docName.replace(/\s+/g, '_')}.${fileExt}`;
+            const storageRef = ref(storage, fileName);
+            
+            // Upload to Supabase Storage
+            setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], progress: 50 } }));
+
+            try {
+              const { data, error } = await supabase.storage
+                .from('documents')
+                .upload(fileName, file, { upsert: true });
+
+              if (error) {
+                throw error;
+              }
+
+              const { data: publicUrlData } = supabase.storage
+                .from('documents')
+                .getPublicUrl(fileName);
+
+              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'success', progress: 100 } }));
+              resolve({ docName, url: publicUrlData.publicUrl });
+            } catch (error: any) {
+              console.error("Upload failed", error);
+              const errMsg = error.message && error.message.includes('too large') ? 'File too large. Please upload a smaller file.' : 'Upload failed, please retry';
+              setDocsMeta(prev => ({ ...prev, [docName]: { ...prev[docName], status: 'error', error: errMsg } }));
+              reject(new Error(`Failed to upload ${docName}: ${errMsg}`));
+            }
           });
+        });
 
-        const results = await Promise.all(uploadPromises);
-        const uploadedDocs: Record<string, string> = {};
-        results.forEach(r => { uploadedDocs[r.docName] = r.url; });
+      const results = await Promise.all(uploadPromises);
+      const uploadedDocs: Record<string, string> = {};
+      results.forEach(r => { uploadedDocs[r.docName] = r.url; });
 
-        try {
-          const { error: dbError } = await supabase
-            .from('applications')
-            .insert({
-              userId: user?.id,
-              userEmail: user?.email,
-              serviceId: service.id,
-              serviceName: service.title,
-              applicantDetails: { ...formData, ...customData },
-              documents: uploadedDocs,
-              status: 'Submitted',
-              paymentStatus: transactionId.startsWith('FREE_') ? 'Free Bypass' : 'Paid',
-              transactionId: transactionId,
-              fee: service.price,
-            });
-          
-          if (dbError) throw dbError;
-          
-          toast.success('Application submitted successfully!');
-          navigate('/dashboard');
-        } catch(err: any) {
-          console.error("Supabase save error after payment:", err);
-          toast.error("Failed to save application. Please contact support.", { duration: 6000 });
-        }
-      } catch (err: any) {
-        console.error("Submission error:", err);
-        
-        let errorMessage = 'Application creation failed. Please try again.';
-        if (err.message && err.message.toLowerCase().includes('storage')) {
-          errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
-        } else if (err.code === 'permission-denied') {
-          errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
-        } else if (err.message && err.message.includes('Unexpected token')) {
-          errorMessage = 'Database connection error: The backend service might be paused or unavailable. Please check your Supabase project status.';
-        } else if (err.message) {
-          errorMessage = err.message;
-        }
+      // Initiate Payment
+      if (service.price > 0) {
+        const orderId = `ORD_${Date.now()}`;
+        const paymentDetails = {
+          orderId,
+          amount: service.price,
+          customerName: formData.applicantName,
+          customerEmail: user?.email || 'test@example.com',
+          customerPhone: formData.applicantPhone,
+        };
 
-        setErrors({ global: errorMessage });
-        toast.error(errorMessage);
-      } finally {
-        setUploading(false);
+        // SAVE FIRST as Pending
+        const docRef = await addDoc(collection(db, 'applications'), {
+          userId: user?.uid,
+          userEmail: user?.email,
+          serviceId: service.id,
+          serviceName: service.title,
+          applicantDetails: { ...formData, ...customData },
+          documents: uploadedDocs,
+          status: 'Submitted',
+          paymentStatus: 'Pending',
+          transactionId: null,
+          orderId: orderId,
+          fee: service.price,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          processPayment('cashfree', paymentDetails, 
+            async (transactionId) => {
+              try {
+                // UPDATE to Paid if not redirected
+                const { doc, updateDoc } = await import('firebase/firestore');
+                await updateDoc(docRef, {
+                  paymentStatus: 'Paid',
+                  transactionId: transactionId,
+                  updatedAt: serverTimestamp()
+                });
+                
+                toast.success('Payment successful and application submitted!');
+                resolve();
+              } catch(err) {
+                console.error("Firestore save error after payment:", err);
+                toast.error("Payment was successful but failed to save application. Please contact support.");
+                reject(err);
+              }
+            }, 
+            (error) => {
+              reject(new Error(error.message || 'Payment failed'));
+            }
+          );
+        });
+      } else {
+        // Free service
+        await addDoc(collection(db, 'applications'), {
+          userId: user?.uid,
+          userEmail: user?.email,
+          serviceId: service.id,
+          serviceName: service.title,
+          applicantDetails: { ...formData, ...customData },
+          documents: uploadedDocs,
+          status: 'Submitted',
+          paymentStatus: 'Paid (Free)',
+          transactionId: `FREE_${Date.now()}`,
+          fee: 0,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        toast.success('Application submitted successfully!');
       }
-    };
 
-      // Payment bypassed
-      onPaymentSuccess(`FREE_${Date.now()}`);
+      navigate('/dashboard');
+    } catch (err: any) {
+      console.error("Submission error:", err);
+      
+      let errorMessage = 'Application creation failed. Please try again.';
+      if (err.code === 'storage/retry-limit-exceeded' || err.code === 'storage/unauthorized') {
+        errorMessage = 'Document upload failed. Please connect to a stable network or try again later.';
+      } else if (err.code === 'permission-denied') {
+        errorMessage = 'You do not have permission to submit. Please ensure you are logged in properly.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+
+      setErrors({ global: errorMessage });
+      toast.error(errorMessage);
+      setUploading(false);
+    }
   };
 
   if (loading) return (
@@ -320,10 +354,10 @@ export default function ApplyService() {
         <div className="flex justify-between items-center bg-primary-50 p-4 rounded-lg">
           <div>
             <h3 className="font-semibold text-primary-900">Application Fee</h3>
-            <p className="text-sm text-primary-700">Non-refundable processing fee</p>
+            <p className="text-sm text-primary-700">{service.price > 0 ? 'Required fee to process your application.' : 'This service is currently free.'}</p>
           </div>
           <div className="text-2xl font-bold text-primary-700 flex items-center">
-            ₹{service.price}
+            {service.price > 0 ? `₹${service.price}` : 'FREE'}
           </div>
         </div>
       </div>

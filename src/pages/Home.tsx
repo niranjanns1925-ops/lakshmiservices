@@ -4,7 +4,6 @@ import { FileText, Shield, Clock, PhoneCall, ChevronRight, Globe, CheckCircle2, 
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
 import { motion, useMotionValue, useTransform, useSpring } from 'motion/react';
-import { useAuth } from '../context/AuthContext';
 
 const FADE_DOWN_ANIMATION_VARIANTS = {
   hidden: { opacity: 0, y: -20 },
@@ -18,7 +17,6 @@ const FADE_UP_ANIMATION_VARIANTS = {
 
 export default function Home() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuth();
   
   // 3D Parallax effect states
   const x = useMotionValue(0);
@@ -118,19 +116,11 @@ export default function Home() {
                       Explore Services <ArrowRight className="ml-2 w-6 h-6" />
                     </Button>
                   </Link>
-                  {user ? (
-                    <Link to="/dashboard" className="w-full sm:w-auto">
-                      <Button variant="outline" size="lg" className="w-full sm:w-auto h-16 px-10 rounded-2xl text-lg font-semibold border-white/20 text-white hover:bg-white/10 hover:border-white/40 transition-all backdrop-blur-md">
-                        Go to Dashboard
-                      </Button>
-                    </Link>
-                  ) : (
-                    <Link to="/register" className="w-full sm:w-auto">
-                      <Button variant="outline" size="lg" className="w-full sm:w-auto h-16 px-10 rounded-2xl text-lg font-semibold border-white/20 text-white hover:bg-white/10 hover:border-white/40 transition-all backdrop-blur-md">
-                        Create Free Account
-                      </Button>
-                    </Link>
-                  )}
+                  <Link to="/register" className="w-full sm:w-auto">
+                    <Button variant="outline" size="lg" className="w-full sm:w-auto h-16 px-10 rounded-2xl text-lg font-semibold border-white/20 text-white hover:bg-white/10 hover:border-white/40 transition-all backdrop-blur-md">
+                      Create Free Account
+                    </Button>
+                  </Link>
                 </motion.div>
               </div>
             </motion.div>
@@ -259,19 +249,11 @@ export default function Home() {
           <h2 className="text-5xl md:text-7xl font-bold tracking-tight mb-8 text-white drop-shadow-lg">Ready to simplify your documentation?</h2>
           <p className="text-2xl text-white/60 mb-12 max-w-3xl mx-auto font-light">Join thousands of citizens who have already experienced the fastest way to get government services online.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-             {user ? (
-               <Link to="/dashboard">
-                 <Button size="lg" className="bg-accent-500 text-gray-900 hover:bg-accent-400 h-16 px-12 rounded-2xl text-xl font-bold shadow-[0_0_40px_rgba(52,211,153,0.3)] hover:scale-105 transition-all">
-                   Go to Dashboard
-                 </Button>
-               </Link>
-             ) : (
-               <Link to="/register">
-                 <Button size="lg" className="bg-accent-500 text-gray-900 hover:bg-accent-400 h-16 px-12 rounded-2xl text-xl font-bold shadow-[0_0_40px_rgba(52,211,153,0.3)] hover:scale-105 transition-all">
-                   Get Started Now
-                 </Button>
-               </Link>
-             )}
+             <Link to="/register">
+               <Button size="lg" className="bg-accent-500 text-gray-900 hover:bg-accent-400 h-16 px-12 rounded-2xl text-xl font-bold shadow-[0_0_40px_rgba(52,211,153,0.3)] hover:scale-105 transition-all">
+                 Get Started Now
+               </Button>
+             </Link>
              <p className="text-lg text-white/50 sm:ml-4 flex items-center font-medium">
                <CheckCircle2 className="w-6 h-6 mr-2 text-accent-500" />
                No hidden fees

@@ -32,7 +32,7 @@ export default function App() {
               <ApplyService />
             </ProtectedRoute>
           } />
-          <Route path="/application/:applicationId" element={
+          <Route path="/application/:serviceId" element={
             <ProtectedRoute>
               <ApplicationDetails />
             </ProtectedRoute>

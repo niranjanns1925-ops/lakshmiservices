@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { supabase } from '../utils/supabase/client';
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../firebase/config';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Logo } from '../components/Logo';
-import { useAuth } from '../context/AuthContext';
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -27,43 +28,39 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const navigate = useNavigate();
-  const { user } = useAuth();
-  
-  useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [user, navigate]);
   
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
   });
 
   const onSubmit = async (data: RegisterForm) => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsLoading(true);
     try {
-      const { data: authData, error } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.name,
-            phone: data.phone,
-          }
-        }
+      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+      const user = userCredential.user;
+
+      await updateProfile(user, {
+        displayName: data.name
       });
 
-      if (error) throw error;
-      
-      if (authData.user && authData.session) {
-        toast.success('Registration successful!');
-        navigate('/dashboard');
-      } else if (authData.user && !authData.session) {
-        toast.success('Registration successful! Please check your email to verify your account.');
-        navigate('/login');
-      }
+      // Avoid creating "admins" from client freely, everyone defaults to 'user'
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        role: data.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+        createdAt: serverTimestamp()
+      });
+
+      toast.success('Registration successful!');
+      navigate('/dashboard');
     } catch (error: any) {
-      if (error.message.includes('already registered')) {
+      if (error.code === 'auth/email-already-in-use') {
         toast.error('The email address is already in use by another account. Please use a different email or log in.');
       } else {
         toast.error(error.message || 'Failed to register.');
@@ -74,17 +71,35 @@ export default function Register() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!auth) {
+      toast.error('Firebase is not configured properly. Please check your API keys.');
+      return;
+    }
     setIsGoogleLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/dashboard`
-        }
-      });
-      if (error) throw error;
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (!docSnap.exists()) {
+        await setDoc(docRef, {
+          uid: user.uid,
+          name: user.displayName || 'Google User',
+          email: user.email,
+          phone: user.phoneNumber || '',
+          role: user.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+          createdAt: serverTimestamp()
+        });
+      }
+      
+      toast.success('Signed in with Google successfully');
+      navigate('/dashboard');
     } catch (error: any) {
       toast.error(error.message || 'Failed to register with Google.');
+    } finally {
       setIsGoogleLoading(false);
     }
   };

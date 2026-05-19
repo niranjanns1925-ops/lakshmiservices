@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase/client';
-import { User } from '@supabase/supabase-js';
+import { auth, db } from '../firebase/config';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface AppUser {
   uid: string;
@@ -26,86 +27,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function getInitialSession() {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (mounted) {
-        if (error) {
-          console.error('Error fetching session:', error);
-        }
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchAppUser(session.user);
-        } else {
-          setAppUser(null);
-        }
-        setLoading(false);
-      }
+    if (!auth) {
+      setLoading(false);
+      return;
     }
+    
+    let unsubscribeSnapshot: () => void;
 
-    getInitialSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (mounted) {
-          setUser(session?.user ?? null);
-          if (session?.user) {
-            await fetchAppUser(session.user);
-          } else {
-            setAppUser(null);
-          }
-          setLoading(false);
-        }
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
       }
-    );
+      
+      if (firebaseUser) {
+        try {
+          const docRef = doc(db, 'users', firebaseUser.uid);
+          unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+              setAppUser(docSnap.data() as AppUser);
+            } else {
+              setAppUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || 'User',
+                role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+                phone: ''
+              });
+            }
+          }, (error: any) => {
+            console.error("Error fetching user role:", error);
+            if (error.message && error.message.includes("client is offline")) {
+              console.error("CRITICAL: Firestore is offline.");
+              setAppUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || 'User',
+                role: firebaseUser.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
+                phone: ''
+              });
+            }
+          });
+        } catch (error) {
+          console.error(error);
+        }
+      } else {
+        setAppUser(null);
+      }
+      
+      setLoading(false);
+    });
 
     return () => {
-      mounted = false;
-      authListener.subscription.unsubscribe();
+      unsubscribeAuth();
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
     };
   }, []);
-
-  const fetchAppUser = async (user: User) => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('uid', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error("Error fetching user role:", error);
-      }
-
-      if (data) {
-        setAppUser(data as AppUser);
-      } else {
-        const newUser: AppUser = {
-          uid: user.id,
-          email: user.email || '',
-          name: user.user_metadata?.full_name || 'User',
-          role: user.email === 'niranjanns1925@gmail.com' ? 'admin' : 'user',
-          phone: ''
-        };
-        setAppUser(newUser);
-        
-        // Ensure user is inserted into the public.users table
-        const { error: insertError } = await supabase.from('users').insert([{
-           uid: newUser.uid,
-           email: newUser.email,
-           name: newUser.name,
-           role: newUser.role,
-           phone: newUser.phone
-        }]);
-        if (insertError) {
-           console.error("Error inserting new user:", insertError);
-        }
-      }
-    } catch (error) {
-      console.error("Error in fetchAppUser:", error);
-    }
-  };
 
   return (
     <AuthContext.Provider value={{ user, appUser, loading }}>
@@ -113,4 +93,3 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
-
