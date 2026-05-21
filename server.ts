@@ -65,7 +65,7 @@ async function startServer() {
       
       const APP_ID = process.env.CASHFREE_APP_ID;
       const SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
-      const ENV = (process.env.CASHFREE_ENVIRONMENT || 'SANDBOX').toUpperCase();
+      const ENV = (process.env.CASHFREE_ENVIRONMENT || 'PRODUCTION').toUpperCase();
       
       if (!APP_ID || !SECRET_KEY) {
          return res.status(500).json({ error: "Cashfree credentials are not configured on the server." });
@@ -115,7 +115,7 @@ async function startServer() {
       const { orderId } = req.body;
       const APP_ID = process.env.CASHFREE_APP_ID;
       const SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
-      const ENV = (process.env.CASHFREE_ENVIRONMENT || 'SANDBOX').toUpperCase();
+      const ENV = (process.env.CASHFREE_ENVIRONMENT || 'PRODUCTION').toUpperCase();
 
       if (!orderId) {
         return res.status(400).json({ error: "Order ID is required" });

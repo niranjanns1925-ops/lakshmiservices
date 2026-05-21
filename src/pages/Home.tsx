@@ -261,6 +261,60 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {/* Contact Section */}
+      <section id="contact" className="py-24 relative border-t border-white/10 overflow-hidden bg-[#020617]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center mb-16">
+            <h2 className="text-sm font-semibold text-accent-400 tracking-widest uppercase mb-4">Get In Touch</h2>
+            <h3 className="text-4xl md:text-5xl font-bold text-white tracking-tight">Contact Us</h3>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <motion.div 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               viewport={{ once: true }}
+               className="bg-white/5 border border-white/10 rounded-3xl p-8 text-center flex flex-col items-center backdrop-blur-xl hover:bg-white/10 transition-colors"
+            >
+               <div className="w-16 h-16 bg-primary-500/10 text-primary-400 rounded-2xl flex items-center justify-center mb-6">
+                 <Globe className="w-8 h-8" />
+               </div>
+               <h4 className="text-xl font-bold text-white mb-2">Visit Us</h4>
+               <p className="text-white/60">Duraisamy Street, Ganapathi Nagar,<br/>Thiruvannaikovil</p>
+            </motion.div>
+
+            <motion.div 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               viewport={{ once: true }}
+               transition={{ delay: 0.1 }}
+               className="bg-white/5 border border-white/10 rounded-3xl p-8 text-center flex flex-col items-center backdrop-blur-xl hover:bg-white/10 transition-colors"
+            >
+               <div className="w-16 h-16 bg-accent-500/10 text-accent-400 rounded-2xl flex items-center justify-center mb-6">
+                 <PhoneCall className="w-8 h-8" />
+               </div>
+               <h4 className="text-xl font-bold text-white mb-2">Call Us</h4>
+               <p className="text-white/60">90954 91999</p>
+            </motion.div>
+
+            <motion.div 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               viewport={{ once: true }}
+               transition={{ delay: 0.2 }}
+               className="bg-white/5 border border-white/10 rounded-3xl p-8 text-center flex flex-col items-center backdrop-blur-xl hover:bg-white/10 transition-colors"
+            >
+               <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center mb-6">
+                 <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                 </svg>
+               </div>
+               <h4 className="text-xl font-bold text-white mb-2">Email Us</h4>
+               <p className="text-white/60">lsgtrichy2020@gmail.com</p>
+            </motion.div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

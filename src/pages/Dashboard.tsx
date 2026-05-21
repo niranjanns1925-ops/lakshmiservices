@@ -151,7 +151,7 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Applications</p>
           <div className="flex items-end justify-between">
@@ -175,13 +175,6 @@ export default function Dashboard() {
               {applications.filter(a => ['Approved', 'Completed'].includes(a.status)).length}
             </span>
             <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded font-bold">Done</span>
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Wallet Balance</p>
-          <div className="flex items-end justify-between">
-            <span className="text-2xl font-black text-primary-900">₹0.00</span>
-            <button className="text-[10px] text-white bg-primary-900 px-3 py-1 rounded font-bold">Top Up</button>
           </div>
         </div>
       </div>
