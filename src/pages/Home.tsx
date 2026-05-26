@@ -294,7 +294,7 @@ export default function Home() {
                  <PhoneCall className="w-8 h-8" />
                </div>
                <h4 className="text-xl font-bold text-white mb-2">Call Us</h4>
-               <p className="text-white/60">90954 91999</p>
+               <p className="text-white/60">9943640299</p>
             </motion.div>
 
             <motion.div 
@@ -310,7 +310,7 @@ export default function Home() {
                  </svg>
                </div>
                <h4 className="text-xl font-bold text-white mb-2">Email Us</h4>
-               <p className="text-white/60">lsgtrichy2020@gmail.com</p>
+               <p className="text-white/60">lakshmiesavicentre4@gmail.com</p>
             </motion.div>
           </div>
         </div>
